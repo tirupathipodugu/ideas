@@ -1,0 +1,5 @@
+# Copy this file to `.dev.vars` (which is gitignored) and paste your key, to test Claude-guided
+# extraction locally with `npx wrangler dev`. For the deployed Worker, set it as a secret instead:
+#   npx wrangler secret put ANTHROPIC_API_KEY
+# Without a key, the app still works — it just falls back to its own cut-out.
+ANTHROPIC_API_KEY=sk-ant-your-key-here

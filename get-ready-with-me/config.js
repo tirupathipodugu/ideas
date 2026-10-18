@@ -1,14 +1,12 @@
-// Get Ready With Me: settings the founder fills in. Everything here is optional; the app works with it all empty.
+// Get Ready With Me: settings you fill in. Everything here is optional; the app works with it all empty
+// (built-in samples, pasted links and dropped photos never need any of this).
 export default {
-  // Google Programmable Search Element engine IDs (cx). One per country, or one shared engine under `default`.
-  // The search is always restricted to the selected Amazon store (as_sitesearch), whichever engine is used.
-  searchEngines: {
-    default: '',
-    in: '', com: '', 'co.uk': '', ae: '', sa: '', de: '', fr: '', it: '', es: '', nl: '', ca: '', 'com.au': '', sg: '', 'co.jp': '',
-  },
+  // Your deployed Cloudflare Worker base URL (see worker/). One setting turns on BOTH live in-app Amazon
+  // search and reading a pasted product page. Example: 'https://grwm-proxy.yourname.workers.dev'
+  // Leave empty and "Search" just opens Amazon in a new tab instead.
+  workerUrl: 'https://grwm-proxy.tirupathi-podugu.workers.dev',
 
-  // Optional CORS proxy for reading a pasted Amazon product page (see worker/). Example:
-  // 'https://grwm-proxy.example.workers.dev/?url='   (the target URL is appended, encoded)
+  // Deprecated: a bare CORS proxy ending in '?url='. Only used if workerUrl is empty. Prefer workerUrl.
   proxyUrl: '',
 
   // Amazon Associates tag per country, e.g. in: 'yourtag-21'. Empty = no tag and no disclosure line.

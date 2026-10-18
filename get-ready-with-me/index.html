@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cse.google.com https://www.google.com https://*.gstatic.com https://www.googleapis.com; style-src 'self' 'unsafe-inline' https://www.google.com https://*.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-src https://cse.google.com https://www.google.com; media-src 'self' blob: mediastream:; worker-src 'self' blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; media-src 'self' blob: mediastream:; worker-src 'self' blob:">
 <title>Get Ready With Me</title>
 <meta name="description" content="Try sunglasses, caps, earrings and watches from Amazon on yourself, live on your camera. Nothing is uploaded.">
 <meta name="theme-color" content="#08080a">
@@ -41,15 +41,14 @@
   <section class="panel find" id="find" aria-label="Find a product">
     <div class="block">
       <h2 class="block-title">Search Amazon</h2>
+      <form class="field-row" id="search-form">
+        <input class="field" id="search-text" type="search" placeholder="e.g. aviator sunglasses" autocomplete="off" aria-label="Search text">
+        <button class="button" type="submit">Search<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
+      </form>
+      <p class="note" id="search-note" hidden></p>
       <div id="cse-wrap" hidden>
         <div id="cse"></div>
-        <p class="note">Tap a product photo in the results to try it on.</p>
       </div>
-      <form class="field-row" id="search-form" hidden>
-        <input class="field" id="search-text" type="search" placeholder="e.g. aviator sunglasses" autocomplete="off" aria-label="Search text">
-        <button class="button" type="submit">Search on Amazon<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M17 14v5H5V7h5"/></svg></button>
-      </form>
-      <p class="note" id="search-note" hidden>Search inside this page isn't set up yet, so this opens Amazon in a new tab. Find your product there, then paste its link or photo address below.</p>
     </div>
 
     <div class="notice" id="clothing" hidden role="status">

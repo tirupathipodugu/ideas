@@ -1,0 +1,8 @@
+name = "grwm-proxy"
+main = "proxy.js"
+compatibility_date = "2024-11-01"
+
+# Set this to your site's origin so only your page can call the Worker.
+# Use "*" while testing locally. Example for GitHub Pages:
+[vars]
+ALLOWED_ORIGIN = "*"

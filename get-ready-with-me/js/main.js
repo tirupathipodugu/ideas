@@ -2,7 +2,7 @@
 // Everything runs in this page. Photos are read on a canvas here; nothing is uploaded anywhere.
 
 import config from '../config.js';
-import { STORES, parseLink, buyUrl, searchUrl, storeHost } from './amazon.js';
+import { STORES, parseLink, buyUrl, searchUrl } from './amazon.js';
 import { classify, KIND, LABEL } from './classify.js';
 import { CATALOG, FILTERS } from './catalog.js';
 import { loadImage, makeCutout } from './cutout.js';
@@ -22,6 +22,12 @@ let asking = null;        // a photo waiting for "What is it?"
 let stream = null;
 let facing = 'user';
 
+// The optional Worker (see worker/). workerUrl turns on both search and the page/image proxy;
+// the old proxyUrl (ending in ?url=) still works for the proxy half only.
+const WORKER = (config.workerUrl || '').replace(/\/+$/, '');
+const proxyBase = WORKER ? WORKER + '/?url=' : (config.proxyUrl || '');
+const canProxy = () => !!proxyBase;
+
 // ---------- store ----------
 function pickStore() {
   const saved = store.get('grwm:store');
@@ -36,12 +42,10 @@ function initStore() {
   for (const [value, name, host] of STORES) sel.add(new Option(`${host} · ${name}`, value));
   sel.value = tld;
   sel.addEventListener('change', () => {
-    const before = cxFor(tld);
     tld = sel.value;
     store.set('grwm:store', tld);
     sound.play('tick');
-    if (cxFor(tld) !== before && before) { location.reload(); return; }
-    renderSearch();
+    renderResults([]); // results were for the old store; clear them
     updateProduct();
   });
 }
@@ -67,76 +71,86 @@ function showClothing(show) {
 }
 
 // ---------- search ----------
-const cxFor = (t) => (config.searchEngines || {})[t] || (config.searchEngines || {}).default || '';
-let cseLoaded = false;
-let cseCount = 0;
+// With a Worker set, the Search box shows real Amazon product photos right here; tap one to wear it.
+// Without one, Search just opens Amazon in a new tab (then paste the product link or photo below).
 
-function renderSearch() {
-  const cx = cxFor(tld);
-  $('cse-wrap').hidden = !cx;
-  $('search-form').hidden = !!cx;
-  $('search-note').hidden = !!cx;
-  if (!cx) return;
-  const draw = () => {
-    const box = $('cse');
-    box.replaceChildren();
-    const div = document.createElement('div');
-    box.append(div);
-    window.google.search.cse.element.render({
-      div, tag: 'search', gname: 'grwm' + ++cseCount,
-      attributes: { as_sitesearch: storeHost(tld).replace('www.', ''), enableImageSearch: true, defaultToImageSearch: true, linkTarget: '_blank', safeSearch: 'active' },
-    });
-  };
-  if (cseLoaded) { draw(); return; }
-  const starting = (gname, query) => { showClothing(classify(query) === 'clothing'); return query; };
-  window.__gcse = {
-    parsetags: 'explicit',
-    initializationCallback: () => { cseLoaded = true; draw(); },
-    searchCallbacks: { web: { starting }, image: { starting } },
-  };
-  const s = document.createElement('script');
-  s.src = 'https://cse.google.com/cse.js?cx=' + encodeURIComponent(cx);
-  s.async = true;
-  s.onerror = () => { $('cse-wrap').hidden = true; $('search-form').hidden = false; $('search-note').hidden = false; };
-  document.head.append(s);
+function searchHint() {
+  const note = $('search-note');
+  if (!note) return;
+  note.hidden = false;
+  note.innerHTML = WORKER
+    ? 'Results come straight from Amazon. Tap a product to try it on.'
+    : "In-app search isn't set up, so this opens Amazon in a new tab. Find your product there, then paste its link or photo address below.";
 }
 
-// Clicking a result in the search widget: capture the image and the product page, and try it on.
-function initSearchPicks() {
-  $('cse').addEventListener('click', (e) => {
-    const result = e.target.closest('.gsc-imageResult, .gsc-webResult, .gsc-result');
-    if (!result) return;
-    const imgs = [...result.querySelectorAll('img')].filter((i) => i.src && !i.src.startsWith('data:'));
-    const links = [...result.querySelectorAll('a[href]')].map((a) => a.getAttribute('data-ctorig') || a.href);
-    const page = links.find((h) => /amazon\./.test(h)) || links[0] || '';
-    const title = (result.querySelector('.gs-title')?.textContent || imgs[0]?.alt || '').trim();
-    if (!imgs.length && !page) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const parsed = page ? parseLink(page) : null;
-    const meta = { title: title || parsed?.words || 'Amazon product', words: parsed?.words, asin: parsed?.asin, tld: parsed?.tld || tld, pageUrl: page };
-    const best = imgs.find((i) => /media-amazon|ssl-images-amazon/.test(i.src)) || imgs.sort((a, b) => b.naturalWidth - a.naturalWidth)[0];
-    if (best) tryProduct(meta, best.src);
-    else useProductLink(page);
-  }, true);
+// Draw the result thumbnails (same grid as Samples). items=[] clears, null shows a loading note.
+function renderResults(items) {
+  const wrap = $('cse-wrap');
+  const box = $('cse');
+  if (!wrap || !box) return;
+  if (items === null) { wrap.hidden = false; box.innerHTML = '<p class="note">Searching Amazon…</p>'; return; }
+  if (!items.length) { wrap.hidden = true; box.replaceChildren(); return; }
+  const ul = document.createElement('ul');
+  ul.className = 'catalog';
+  for (const it of items.slice(0, 30)) {
+    if (!it.img) continue;
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = `<img src="${esc(it.img)}" alt="" loading="lazy" width="112" height="112"><span>${esc(it.title || 'Amazon product')}</span>`;
+    b.addEventListener('click', () => {
+      sound.play('pick');
+      tryProduct({ title: it.title || 'Amazon product', words: it.title, tld, query: it.title }, it.img);
+    });
+    li.append(b);
+    ul.append(li);
+  }
+  box.replaceChildren(ul);
+  wrap.hidden = false;
+}
+
+async function runSearch(q) {
+  showClothing(false);
+  if (!WORKER) { sound.play('tick'); window.open(searchUrl(tld, q, tagFor(tld)), '_blank', 'noopener'); return; }
+  sound.play('tick');
+  say('');
+  renderResults(null);
+  try {
+    const r = await fetch(`${WORKER}/?q=${encodeURIComponent(q)}&store=${encodeURIComponent(tld)}`);
+    if (!r.ok) throw new Error('search ' + r.status);
+    const data = await r.json();
+    if (data.blocked) {
+      renderResults([]);
+      say('Amazon blocked that search from the server (it does that to automated requests). Try again in a moment, or paste a product link or drop a photo below.', 'warn');
+      return;
+    }
+    if (!data.items || !data.items.length) {
+      renderResults([]);
+      say(`No products found for “${esc(q)}”. Try different words, or paste a product link below.`, 'warn');
+      return;
+    }
+    renderResults(data.items);
+  } catch {
+    renderResults([]);
+    say("Couldn't reach the search service just now. You can still paste a product link or drop a photo below.", 'warn');
+  }
 }
 
 function initSearchForm() {
+  searchHint();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const q = $('search-text').value.trim();
     if (!q) return;
     if (classify(q) === 'clothing') { showClothing(true); return; }
-    showClothing(false);
-    sound.play('tick');
-    window.open(searchUrl(tld, q, tagFor(tld)), '_blank', 'noopener');
+    runSearch(q);
   });
 }
 
 // ---------- links ----------
 async function viaProxy(url) {
-  if (!config.proxyUrl) return null;
-  const r = await fetch(config.proxyUrl + encodeURIComponent(url));
+  if (!proxyBase) return null;
+  const r = await fetch(proxyBase + encodeURIComponent(url));
   if (!r.ok) throw new Error('proxy ' + r.status);
   return r;
 }
@@ -150,14 +164,14 @@ async function useProductLink(text) {
     return;
   }
   if (link.kind === 'short') {
-    if (!config.proxyUrl) { say('Short links (amzn.in, amzn.to, a.co) can\'t be opened from here. Open it, then copy the full address from the address bar.', 'warn'); return; }
+    if (!canProxy()) { say('Short links (amzn.in, amzn.to, a.co) can\'t be opened from here. Open it, then copy the full address from the address bar.', 'warn'); return; }
     try { const r = await viaProxy(link.url); return useProductLink(r.headers.get('x-final-url') || r.url); } catch { say('That short link could not be opened. Paste the full address instead.', 'warn'); return; }
   }
   if (link.kind !== 'product') { say('Paste a link to an Amazon product page (it has /dp/ in it), or the address of its photo.', 'warn'); return; }
   pending = { title: link.words || `Amazon product ${link.asin}`, words: link.words, asin: link.asin, tld: link.tld, pageUrl: link.url };
   if (classify(link.words) === 'clothing') { showClothing(true); return; }
   showClothing(false);
-  if (config.proxyUrl) {
+  if (canProxy()) {
     try {
       say('Reading the product page…');
       const html = await (await viaProxy(link.url)).text();
@@ -183,31 +197,79 @@ async function useProductLink(text) {
 async function loadForCanvas(src) {
   if (src instanceof Blob) return loadImage(src);
   try { return await loadImage(src); } catch {
-    if (config.proxyUrl) return loadImage(config.proxyUrl + encodeURIComponent(src));
+    if (proxyBase) return loadImage(proxyBase + encodeURIComponent(src));
     throw new Error('cors');
   }
 }
 
+// Ask the Worker (which asks Claude) where the product is, what it is, and whether the background is clean.
+// Only runs for Amazon product photos; returns null (quiet fallback) if the Worker, key or call isn't available.
+async function analyzeProduct(src) {
+  if (!WORKER || typeof src !== 'string' || !/(m\.media-amazon\.com|ssl-images-amazon\.com)/.test(src)) return null;
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 9000);
+    const r = await fetch(`${WORKER}/?analyze=${encodeURIComponent(src)}`, { signal: ac.signal });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && !d.skip && !d.error) ? d : null;   // { type, box, clean_bg }
+  } catch { return null; }
+}
+
+// Crop an image (or canvas) to Claude's normalised box, with a little padding. Returns a canvas, or the input if the box is near-full.
+function cropToBox(img, box) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const pad = 0.06;
+  const x = Math.max(0, box.x - pad);
+  const y = Math.max(0, box.y - pad);
+  const w = Math.min(1 - x, box.w + pad * 2);
+  const h = Math.min(1 - y, box.h + pad * 2);
+  if (w <= 0.02 || h <= 0.02 || (w >= 0.97 && h >= 0.97)) return img;   // no useful crop
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(iw * w));
+  c.height = Math.max(1, Math.round(ih * h));
+  c.getContext('2d').drawImage(img, Math.round(iw * x), Math.round(ih * y), c.width, c.height, 0, 0, c.width, c.height);
+  return c;
+}
+
 async function tryProduct(meta, src, img) {
-  const category = meta.category || classify(meta.title, meta.words, meta.fileName);
+  let category = meta.category || classify(meta.title, meta.words, meta.fileName);
   if (category === 'clothing') { showClothing(true); return; }
   showClothing(false);
-  if (!category || !KIND[category]) {
-    asking = { meta, src, img };
-    showAsk();
-    return;
-  }
-  $('ask').hidden = true;
+
+  // Load the photo first; both Claude and the cut-out need it.
   try { img ||= await loadForCanvas(src); } catch {
     say("This site doesn't let other pages read its photos. Save the photo to your device and drop it here instead.", 'warn');
     return;
   }
+
+  // Let Claude find and identify the product, unless the user already told us what it is (ask flow / samples).
+  let shaped = img;
+  let claudeCleanBg = null;
+  if (!meta.category) {
+    say('Looking at the product…');
+    const a = await analyzeProduct(src);
+    if (a) {
+      if (a.type === 'clothing') { showClothing(true); say(''); return; }
+      if (a.type && KIND[a.type]) category = a.type;   // trust the picture over the title words
+      if (a.box) shaped = cropToBox(img, a.box);
+      claudeCleanBg = a.clean_bg;
+    }
+    say('');
+  }
+
+  if (!category || !KIND[category]) { asking = { meta, src, img }; showAsk(); return; }
+  $('ask').hidden = true;
+
   let cut;
-  try { cut = makeCutout(img, KIND[category], category); } catch {
+  try { cut = makeCutout(shaped, KIND[category], category); } catch {
     say("Couldn't find the product in that photo. Try the main photo on a white background.", 'warn');
     return;
   }
-  say(cut.plainBackground ? '' : 'This photo has a busy background, so the cut-out may be rough. The main photo on white works best.', cut.plainBackground ? '' : 'warn');
+  const rough = cut.plainBackground === false || claudeCleanBg === false;
+  say(rough ? 'This photo has a busy background, so the cut-out may be rough. The main photo on white works best.' : '', rough ? 'warn' : '');
   current = { ...meta, category, img, src, thumb: src instanceof Blob ? img.src : src };
   pending = null;
   stage.setProduct(cut);
@@ -478,10 +540,8 @@ initStore();
 initCatalog();
 initInputs();
 initSearchForm();
-initSearchPicks();
 initCamera();
 initCapture();
-renderSearch();
 
 // Test hook for headless checks: ?sample=<file>&photo=<url> puts a sample on a still photo.
 const params = new URLSearchParams(location.search);
