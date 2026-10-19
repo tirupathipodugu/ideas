@@ -1,0 +1,11 @@
+{
+  "name": "ideas",
+  "owner": { "name": "tirupathipodugu" },
+  "plugins": [
+    {
+      "name": "dino-wait",
+      "source": "./dino-wait",
+      "description": "Chrome's dino game above the Claude Code prompt while Claude works"
+    }
+  ]
+}
