@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- Day 7's page. The game itself is a Claude Code mod, so this page shows it and gives the install line. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>Dino Wait</title>
+<meta name="description" content="Chrome's dino game in colour, right above the Claude Code prompt while Claude works.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 fill=%22%23050506%22/%3E%3Ctext x=%2216%22 y=%2221%22 font-family=%22sans-serif%22 font-size=%2213%22 fill=%22%23d8dce4%22 text-anchor=%22middle%22%3E30%3C/text%3E%3C/svg%3E">
+<style>
+:root { --bg: #050506; --text: rgba(255,255,255,.88); --quiet: rgba(255,255,255,.6); --faint: rgba(255,255,255,.28); --line: rgba(255,255,255,.12); --accent: #d97757; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 300 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .01em; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 72px 16px 80px; }
+.back { font-size: 13px; color: var(--quiet); text-decoration: none; }
+.back:hover { color: #fff; }
+.day { margin: 40px 0 8px; font: 400 13px/1.9 ui-monospace, "SF Mono", Consolas, monospace; color: var(--quiet); }
+h1 { margin: 0 0 12px; font-size: 28px; font-weight: 400; }
+.lead { margin: 0 0 32px; max-width: 56ch; color: var(--quiet); }
+.shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); image-rendering: pixelated; }
+.caption { margin: 8px 0 40px; font-size: 13px; color: var(--faint); }
+h2 { margin: 0 0 12px; font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: .25em; color: var(--quiet); }
+.install { display: flex; gap: 8px; align-items: stretch; margin: 0 0 12px; }
+code { font: 400 14px/1.5 ui-monospace, "SF Mono", Consolas, monospace; }
+.install code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
+.copy { min-width: 76px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.08); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,.14); }
+.copy:focus-visible { outline: 2px solid rgba(255,255,255,.8); outline-offset: 2px; }
+.note { margin: 0 0 40px; font-size: 14px; color: var(--quiet); }
+ul { margin: 0 0 40px; padding-left: 20px; color: var(--quiet); }
+li { margin: 4px 0; }
+kbd { font: 400 13px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; color: var(--text); }
+.code-link { font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../gallery/">← All ideas</a>
+  <p class="day">Day 7</p>
+  <h1>Dino Wait</h1>
+  <p class="lead">Chrome's dino game, in colour, right above the Claude Code prompt. It shows up while Claude works and goes away when Claude is done.</p>
+
+  <img class="shot" src="preview.png" width="960" height="288" alt="A pixel-art desert: an orange T-Rex jumping between green cactuses and a purple pterodactyl, under a blue sky with a sun and clouds.">
+  <p class="caption">A frame drawn by the game's own code.</p>
+
+  <h2>Install</h2>
+  <div class="install">
+    <code id="cmd">/plugin install dino-wait --marketplace tirupathipodugu/ideas</code>
+    <button class="copy" id="copy" type="button">Copy</button>
+  </div>
+  <p class="note">Type it at a Claude Code prompt in your terminal, answer <code>y</code> to add the marketplace, then pick a scope.</p>
+
+  <h2>Play</h2>
+  <ul>
+    <li>Give Claude a task. The game appears above the prompt.</li>
+    <li>With the prompt empty: <kbd>Space</kbd> starts and jumps, <kbd>W</kbd> jumps, <kbd>S</kbd> ducks.</li>
+    <li>Type any other key to write your next message as usual.</li>
+    <li><code>/dino</code> shows or hides it any time.</li>
+  </ul>
+
+  <a class="code-link" href="https://github.com/tirupathipodugu/ideas/tree/main/dino-wait">See the code on GitHub</a>
+</div>
+<script>
+const button = document.getElementById("copy");
+button.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById("cmd").textContent);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Select it";
+  }
+  setTimeout(() => (button.textContent = "Copy"), 1600);
+});
+</script>
+</body>
+</html>

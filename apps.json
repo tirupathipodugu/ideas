@@ -32,5 +32,17 @@
     "name": "Roadster Thruster Yard",
     "hook": "Drive the Tesla Roadster with SpaceX thrusters: loop the ramp, jump the Semi, and race friends in your own paint.",
     "path": "roadster-yard/"
+  },
+  {
+    "day": 6,
+    "name": "Roadster Transformer",
+    "hook": "The Tesla Roadster folds into a robot. Walk, run, fly on palm and boot jets, then fold back into the car mid-run.",
+    "path": "roadster-yard/v2/"
+  },
+  {
+    "day": 7,
+    "name": "Dino Wait",
+    "hook": "Chrome's dino game in colour, right above the Claude Code prompt while Claude works.",
+    "path": "dino-wait/"
   }
 ]
