@@ -1,6 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { COUNTDOWN, fresh, pause, press, step } from '../hooks/game'
+
 // Stand-ins for what the engine does beneath the plugin.
 const engine = (on: On) => {
   const saved: unknown[] = []
@@ -159,4 +161,31 @@ test('/dino puts a paused game away', async ($, on) => {
   await $.command.run({ command: 'dino', args: '' } as never)
   expect(await ui.find({ type: 'Raster' })).toBeUndefined()
   await ui.unmount()
+})
+
+// Asked for: the next task resumes a paused run without a key; a new run still waits for Space.
+test('a paused run resumes by itself when Claude starts the next task', async ($, on) => {
+  const { clock } = engine(on)
+  const ui = await $.ui.mount(BAND)
+  await $.turn.start(turn)
+  expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
+  await type($, ' ')
+  await clock.advance(33)
+  await $.turn.complete(done)
+  expect(await ui.find({ text: /Paused/ })).toBeDefined()
+
+  await $.turn.start({ text: 'next task', turnId: 't3' })
+  expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// Asked for: a countdown before a paused run moves again.
+test('a resumed run holds still through a 3-2-1 countdown', () => {
+  const paused = pause(step(press(fresh(0), ' '), 100))
+  let g = press(paused, ' ')
+  expect(g).toMatchObject({ mode: 'run', countdown: COUNTDOWN })
+  // Space during the countdown does nothing.
+  for (let i = 0; i < COUNTDOWN; i++) g = step(press(g, ' '), 100)
+  expect(g).toMatchObject({ dist: paused.dist, vy: 0, countdown: 0 })
+  expect(step(g, 100).dist).toBeGreaterThan(paused.dist)
 })

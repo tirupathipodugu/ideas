@@ -20,6 +20,7 @@ export type Game = {
   clouds: Cloud[]
   gap: number // pixels until the next obstacle
   tick: number
+  countdown: number // ticks of 3-2-1 left before a resumed run moves
 }
 
 // One terminal cell is two stacked pixels: '▀' paints the top one in the
@@ -32,6 +33,7 @@ const DINO_X = 5
 const GRAVITY = 0.3
 const JUMP = 3 // rises about 15 pixels, lands about two thirds of a second later
 const SLACK = 2 // overlapping pixels forgiven, as Chrome trims its hit boxes
+export const COUNTDOWN = 90 // three seconds of ticks
 
 const SKY_TOP = 0x8fd3ff
 const SKY_LOW = 0xe6f6ff
@@ -65,6 +67,7 @@ export const fresh = (best: number): Game => ({
   ],
   gap: 60,
   tick: 0,
+  countdown: 0,
 })
 
 const obstacleSprite = (o: Obstacle, tick: number): Sprite => {
@@ -134,6 +137,8 @@ const jump = (g: Game): Game => ({ ...g, vy: JUMP, duck: 0, buffered: 0 })
 
 export const step = (g: Game, width: number): Game => {
   if (g.mode !== 'run') return g
+  // A resumed run holds still through its 3-2-1.
+  if (g.countdown > 0) return { ...g, countdown: g.countdown - 1 }
   let next: Game = { ...g, tick: g.tick + 1, duck: Math.max(0, g.duck - 1), buffered: Math.max(0, g.buffered - 1) }
 
   // Jump physics; holding Down in the air drops faster.
@@ -175,12 +180,13 @@ export const press = (g: Game, key: string): Game => {
   const isDown = key === 'down' || key === 's' || key === 'S'
 
   // Resuming does not jump, so the dino is not thrown into the next cactus.
-  if (g.mode === 'paused') return isJump ? { ...g, mode: 'run' } : g
+  if (g.mode === 'paused') return isJump ? { ...g, mode: 'run', countdown: COUNTDOWN } : g
   if (g.mode !== 'run') {
     if (isJump || key === 'return' || key === 'r') return { ...fresh(g.best), clouds: g.clouds, mode: 'run' }
 
     return g
   }
+  if (g.countdown > 0) return g
   if (isJump) {
     if (g.y === 0 && g.vy === 0) return jump(g)
 
@@ -271,6 +277,10 @@ export const frame = (g: Game, width: number): string => {
   write(pad(g.score), 0, TEXT, width - 7)
   if (g.best > 0) write(`HI ${pad(g.best)}`, 0, DIM, width - 18)
   if (g.mode === 'ready') write('press space to start', 6, TEXT)
+  if (g.mode === 'run' && g.countdown > 0) {
+    write(String(Math.ceil((g.countdown * 3) / COUNTDOWN)), 5, TEXT)
+    write('get ready', 7, DIM)
+  }
   if (g.mode === 'paused') {
     write('P A U S E D', 5, TEXT)
     write('Claude is done · space to keep playing', 7, DIM)

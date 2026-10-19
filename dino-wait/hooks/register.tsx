@@ -90,7 +90,11 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (!e.agentId) await update($, busy, () => true)
+    if (!e.agentId) {
+      await update($, busy, () => true)
+      // Claude is back at work: a paused run picks up by itself. A new run still waits for Space.
+      if (game.mode === 'paused') keyPress($, ' ')
+    }
 
     return next(e)
   })
