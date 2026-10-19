@@ -122,10 +122,14 @@ export const register: Register = on => {
     const isGames = !!band && e.text.trim() === '' && !e.key?.ctrl && !e.key?.meta && isGameKey(key)
     // Debug log only (claude --debug): what each key was and whether the game took it.
     if (band) $.ui.log(`dino key ${JSON.stringify({ name: e.key?.key, typed: e.inputText, box: e.text.length, mode: game.mode, taken: isGames })}`, { to: 'debug' })
-    if (!isGames) return next(e)
+    // A box left as it was stops the editor sending keys (seen in the debug log
+    // after the first Space), so a game key flips the box between empty and one
+    // space instead. That space goes as soon as a message is typed.
+    if (!isGames) return e.text !== '' && e.text.trim() === '' ? next({ ...e, text: '', cursor: 0, start: 0, end: 0 }) : next(e)
     keyPress($, key)
+    const text = e.text === '' ? ' ' : ''
 
-    return { text: e.text, cursor: e.cursor }
+    return { text, cursor: text.length }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

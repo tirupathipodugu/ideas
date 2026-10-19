@@ -63,7 +63,7 @@ test('Space in the empty prompt starts a run without typing, and the score is ke
   await $.turn.start(turn)
   expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
 
-  expect(await type($, ' ')).toMatchObject({ text: '' })
+  expect(await type($, ' ')).toMatchObject({ text: ' ' })
   expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
 
   // Never jumping, the dino meets the first cactus within a few seconds.
@@ -100,7 +100,7 @@ test('Space starts the run when the terminal names the key "space"', async ($, o
   await $.turn.start(turn)
   expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
 
-  expect(await type($, ' ', '', 'space')).toMatchObject({ text: '' })
+  expect(await type($, ' ', '', 'space')).toMatchObject({ text: ' ' })
   expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
   await ui.unmount()
 })
@@ -111,7 +111,7 @@ test('a prompt holding only spaces still counts as empty', async ($, on) => {
   await $.turn.start(turn)
   expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
 
-  expect(await type($, ' ', '  ')).toMatchObject({ text: '  ' })
+  expect(await type($, ' ', '  ')).toMatchObject({ text: '' })
   expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
   await ui.unmount()
 })
@@ -141,7 +141,7 @@ test('Claude finishing mid-run pauses the game, and Space picks it up again', as
 
   // Paused, W and S type as usual; only Space resumes.
   expect(await type($, 'w')).toMatchObject({ text: 'w' })
-  expect(await type($, ' ')).toMatchObject({ text: '' })
+  expect(await type($, ' ')).toMatchObject({ text: ' ' })
   expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
   await ui.unmount()
 })
@@ -209,7 +209,21 @@ test('after the game resumes by itself, Space in the prompt goes to the game', a
   await $.turn.start({ text: 'next task', turnId: 't3' })
   expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
 
-  expect(await type($, ' ')).toMatchObject({ text: '' })
-  expect(await type($, ' ')).toMatchObject({ text: '' })
+  expect(await type($, ' ')).toMatchObject({ text: ' ' })
+  expect(await type($, ' ')).toMatchObject({ text: ' ' })
+  await ui.unmount()
+})
+
+// Reported: Space worked once, then never again. Leaving the box unchanged stopped the editor sending keys.
+test('every game key changes the box, and the space it leaves never reaches a message', async ($, on) => {
+  engine(on)
+  const ui = await $.ui.mount(BAND)
+  await $.turn.start(turn)
+  expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
+
+  expect(await type($, ' ', '')).toMatchObject({ text: ' ' })
+  expect(await type($, ' ', ' ')).toMatchObject({ text: '' })
+  expect(await type($, 'w', '')).toMatchObject({ text: ' ' })
+  expect(await type($, 'h', ' ')).toMatchObject({ text: 'h', cursor: 1 })
   await ui.unmount()
 })
