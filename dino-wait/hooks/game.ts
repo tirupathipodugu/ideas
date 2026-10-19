@@ -186,7 +186,8 @@ export const press = (g: Game, key: string): Game => {
 
     return g
   }
-  if (g.countdown > 0) return g
+  // Space through the 3-2-1 means ready: go now, without a jump.
+  if (g.countdown > 0) return isJump ? { ...g, countdown: 0 } : g
   if (isJump) {
     if (g.y === 0 && g.vy === 0) return jump(g)
 
@@ -279,7 +280,7 @@ export const frame = (g: Game, width: number): string => {
   if (g.mode === 'ready') write('press space to start', 6, TEXT)
   if (g.mode === 'run' && g.countdown > 0) {
     write(String(Math.ceil((g.countdown * 3) / COUNTDOWN)), 5, TEXT)
-    write('get ready', 7, DIM)
+    write('get ready · space to go now', 7, DIM)
   }
   if (g.mode === 'paused') {
     write('P A U S E D', 5, TEXT)

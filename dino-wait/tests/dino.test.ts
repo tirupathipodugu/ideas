@@ -184,8 +184,32 @@ test('a resumed run holds still through a 3-2-1 countdown', () => {
   const paused = pause(step(press(fresh(0), ' '), 100))
   let g = press(paused, ' ')
   expect(g).toMatchObject({ mode: 'run', countdown: COUNTDOWN })
-  // Space during the countdown does nothing.
-  for (let i = 0; i < COUNTDOWN; i++) g = step(press(g, ' '), 100)
-  expect(g).toMatchObject({ dist: paused.dist, vy: 0, countdown: 0 })
+  for (let i = 0; i < COUNTDOWN; i++) g = step(g, 100)
+  expect(g).toMatchObject({ dist: paused.dist, countdown: 0 })
   expect(step(g, 100).dist).toBeGreaterThan(paused.dist)
+})
+
+// Reported: Space did nothing once the game had started by itself (it was the countdown, which ignored keys).
+test('Space during the countdown starts the run at once, and Space then jumps', () => {
+  let g = press(pause(step(press(fresh(0), ' '), 100)), ' ')
+  g = step(g, 100)
+  g = press(g, ' ')
+  expect(g).toMatchObject({ mode: 'run', countdown: 0, vy: 0 })
+  expect(press(g, ' ').vy).toBeGreaterThan(0)
+})
+
+test('after the game resumes by itself, Space in the prompt goes to the game', async ($, on) => {
+  const { clock } = engine(on)
+  const ui = await $.ui.mount(BAND)
+  await $.turn.start(turn)
+  expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
+  await type($, ' ')
+  await clock.advance(33)
+  await $.turn.complete(done)
+  await $.turn.start({ text: 'next task', turnId: 't3' })
+  expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
+
+  expect(await type($, ' ')).toMatchObject({ text: '' })
+  expect(await type($, ' ')).toMatchObject({ text: '' })
+  await ui.unmount()
 })
