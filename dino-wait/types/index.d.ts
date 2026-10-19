@@ -1,4 +1,4 @@
-export type GameMode = 'ready' | 'run' | 'over'
+export type GameMode = 'ready' | 'run' | 'paused' | 'over'
 
 declare module 'claude-code' {
   interface PluginState {

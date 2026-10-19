@@ -4,7 +4,7 @@ import type { Sprite } from './sprites'
 type Obstacle = { x: number; kind: 'small' | 'large' | 'bird'; count: number; lift: number }
 type Cloud = { x: number; y: number }
 
-export type Mode = 'ready' | 'run' | 'over'
+export type Mode = 'ready' | 'run' | 'paused' | 'over'
 
 export type Game = {
   mode: Mode
@@ -127,6 +127,9 @@ const spawn = (g: Game, width: number): Obstacle => {
   return { x: width, kind: 'large', count: fast && Math.random() < 0.3 ? 2 : 1, lift: 0 }
 }
 
+// Claude finished mid-run: the run holds still until Space picks it up again.
+export const pause = (g: Game): Game => (g.mode === 'run' ? { ...g, mode: 'paused' } : g)
+
 const jump = (g: Game): Game => ({ ...g, vy: JUMP, duck: 0, buffered: 0 })
 
 export const step = (g: Game, width: number): Game => {
@@ -171,6 +174,8 @@ export const press = (g: Game, key: string): Game => {
   const isJump = key === ' ' || key === 'space' || key === 'up' || key === 'w' || key === 'W'
   const isDown = key === 'down' || key === 's' || key === 'S'
 
+  // Resuming does not jump, so the dino is not thrown into the next cactus.
+  if (g.mode === 'paused') return isJump ? { ...g, mode: 'run' } : g
   if (g.mode !== 'run') {
     if (isJump || key === 'return' || key === 'r') return { ...fresh(g.best), clouds: g.clouds, mode: 'run' }
 
@@ -266,6 +271,10 @@ export const frame = (g: Game, width: number): string => {
   write(pad(g.score), 0, TEXT, width - 7)
   if (g.best > 0) write(`HI ${pad(g.best)}`, 0, DIM, width - 18)
   if (g.mode === 'ready') write('press space to start', 6, TEXT)
+  if (g.mode === 'paused') {
+    write('P A U S E D', 5, TEXT)
+    write('Claude is done · space to keep playing', 7, DIM)
+  }
   if (g.mode === 'over') {
     write('G A M E   O V E R', 5, ALERT)
     write('space to play again', 7, DIM)

@@ -122,3 +122,41 @@ test('the game fills a wide band', async ($, on) => {
   expect(await ui.find({ type: 'Raster' })).toMatchObject({ props: { columns: 230 } })
   await ui.unmount()
 })
+
+// Asked for: when Claude finishes mid-run the game pauses, rather than running on until a crash.
+test('Claude finishing mid-run pauses the game, and Space picks it up again', async ($, on) => {
+  const { clock } = engine(on)
+  const ui = await $.ui.mount(BAND)
+  await $.turn.start(turn)
+  expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
+  await type($, ' ')
+  await clock.advance(33)
+
+  await $.turn.complete(done)
+  expect(await ui.find({ type: 'Raster' })).toBeDefined()
+  expect(await ui.find({ text: /Paused · Space to keep playing/ })).toBeDefined()
+  expect(await ui.find({ text: /Claude is done/ })).toBeDefined()
+
+  // Paused, W and S type as usual; only Space resumes.
+  expect(await type($, 'w')).toMatchObject({ text: 'w' })
+  expect(await type($, ' ')).toMatchObject({ text: '' })
+  expect(await ui.find({ text: /Space or W jump/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/dino puts a paused game away', async ($, on) => {
+  const { clock } = engine(on)
+  on('command.run', ($, e) => ({ text: '' }) as never)
+  const ui = await $.ui.mount(BAND)
+  await $.turn.start(turn)
+  expect(await ui.find({ text: /Press Space to start/ })).toBeDefined()
+  await type($, ' ')
+  await clock.advance(33)
+  await $.turn.complete(done)
+  expect(await ui.find({ text: /Paused/ })).toBeDefined()
+
+  await $.command.run({ command: 'dino', args: '' } as never)
+  await $.command.run({ command: 'dino', args: '' } as never)
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  await ui.unmount()
+})

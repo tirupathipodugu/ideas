@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import { ROWS, TICK_MS, fresh, frame, press, step } from './game'
+import { ROWS, TICK_MS, fresh, frame, pause, press, step } from './game'
 import type { Game } from './game'
 
 const ORANGE = '#d97757'
@@ -61,7 +61,7 @@ const tick = async ($: EngineInterface) => {
 // Terminals name Space either way: the character, or 'space'.
 const keyOf = (name: string | undefined, typed: string) => (name === 'space' || typed === ' ' ? ' ' : name || typed)
 
-// Space starts a run; while one runs, Space or W jumps and S ducks.
+// Space starts or resumes a run; while one runs, Space or W jumps and S ducks.
 const isGameKey = (key: string) => (game.mode === 'run' ? [' ', 'w', 'W', 's', 'S'].includes(key) : key === ' ')
 
 export const register: Register = on => {
@@ -80,6 +80,11 @@ export const register: Register = on => {
   on('command.run', { command: 'dino' }, async $ => {
     const isShown = !(await read($, shown))
     await update($, shown, () => isShown)
+    // Hiding puts a paused run away too, or the band would stay for it.
+    if (!isShown && game.mode === 'paused') {
+      game = fresh(game.best)
+      await update($, mode, () => 'ready')
+    }
 
     return { text: isShown ? 'Dino is above the prompt. Press Space (with the prompt empty) to start.' : 'Dino hidden.' }
   })
@@ -91,7 +96,16 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) await update($, busy, () => false)
+    if (!e.agentId) {
+      await update($, busy, () => false)
+      // Claude is done mid-run: hold the run still until Space resumes it.
+      if (game.mode === 'run') {
+        stop()
+        game = pause(game)
+        await update($, mode, () => 'paused')
+        paint($)
+      }
+    }
 
     return next(e)
   })
@@ -113,7 +127,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const isBusy = await read($, busy)
     const now = await read($, mode)
-    const isOn = !e.props.hasSurvey && e.surface === 'terminal' && (isBusy || now === 'run' || (await read($, shown)))
+    const isOn = !e.props.hasSurvey && e.surface === 'terminal' && (isBusy || now === 'run' || now === 'paused' || (await read($, shown)))
     if (!isOn) {
       band = undefined
 
@@ -126,9 +140,11 @@ export const register: Register = on => {
     const hint =
       now === 'run'
         ? 'Space or W jump · S duck · type anything else to write your next message'
-        : now === 'over'
-          ? 'Game over · Space to play again · /dino to hide'
-          : 'Press Space to start · Space or W jump · S duck · /dino to hide'
+        : now === 'paused'
+          ? 'Paused · Space to keep playing · type to write your next message · /dino to hide'
+          : now === 'over'
+            ? 'Game over · Space to play again · /dino to hide'
+            : 'Press Space to start · Space or W jump · S duck · /dino to hide'
 
     return (
       <Box flexDirection="column">
