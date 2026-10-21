@@ -19,6 +19,12 @@ const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 const mid = (a, b) => lerp(a, b, 0.5);
 const smoothstep = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 
+// Face-mesh indices for the lip band (outer ring minus inner ring = the lips, not the teeth).
+const OUTER_LIPS = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146];
+const INNER_LIPS = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+function hexToRgb(h) { h = String(h).replace('#', ''); if (h.length === 3) h = h.split('').map((c) => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgba(hex, a) { const [r, g, b] = hexToRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+
 /** Affine transform taking three source points onto three destination points: [a, b, c, d, e, f]. */
 function affine(s, d) {
   const [[x0, y0], [x1, y1], [x2, y2]] = s;
@@ -80,6 +86,7 @@ export class Stage {
     this.running = false;
     this.busy = false;
     this.cached = null;           // landmarks for a still photo
+    this.makeup = null;           // { lips: colour|null, cheeks: colour|null } when makeup mode is on
   }
 
   setSource(el, mirrored) {
@@ -172,6 +179,23 @@ export class Stage {
     if (this.mirrored) { ctx.translate(W, 0); ctx.scale(-1, 1); }
     ctx.drawImage(this.source, ox, oy, sw * k, sh * k);
     ctx.restore();
+
+    // Makeup mode: tint the lips / cheeks on the live face, independent of any product.
+    if (this.makeup && (this.makeup.lips || this.makeup.cheeks)) {
+      let task;
+      try { task = await tracker('face'); } catch { return; }
+      let marks = null;
+      if (!this.busy) { this.busy = true; try { marks = detect(task, 'face', this.source); } catch { marks = null; } this.busy = false; }
+      if (marks) {
+        this.lastSeen = performance.now();
+        this.say('');
+        const P = (i) => { const mk = marks[i]; const x = ox + mk.x * sw * k, y = oy + mk.y * sh * k; return [this.mirrored ? W - x : x, y]; };
+        this.drawMakeup(P);
+      } else if (performance.now() - this.lastSeen > 600) {
+        this.say('Look at the camera so it can find your face.');
+      }
+      return;
+    }
 
     const cut = this.product;
     if (!cut) return;
@@ -398,6 +422,40 @@ export class Stage {
       if (pass === 'shadow') ctx.drawImage(cut.shadow, -pc[0] - cut.shadow.offset, -pc[1] - cut.shadow.offset);
       else ctx.drawImage(cut.sprite, -pc[0], -pc[1]);
       ctx.restore();
+    }
+  }
+
+  // Tint lips (a band from the mesh) and cheeks (soft blush blobs) in the chosen colours.
+  drawMakeup(P) {
+    const { ctx } = this;
+    const m = this.makeup;
+    if (!m) return;
+    if (m.lips) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = m.lips;
+      ctx.beginPath();
+      OUTER_LIPS.forEach((i, k) => { const p = P(i); k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      INNER_LIPS.forEach((i, k) => { const p = P(i); k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      ctx.fill('evenodd');
+      ctx.restore();
+    }
+    if (m.cheeks) {
+      const eyeD = len(sub(P(33), P(263))) || 60;
+      for (const ci of [50, 280]) {
+        const c = P(ci), r = eyeD * 0.3;
+        const g = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], r);
+        g.addColorStop(0, rgba(m.cheeks, 0.4));
+        g.addColorStop(1, rgba(m.cheeks, 0));
+        ctx.save();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(c[0], c[1], r, 0, 7); ctx.fill();
+        ctx.restore();
+      }
     }
   }
 }

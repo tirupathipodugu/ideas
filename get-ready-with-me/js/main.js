@@ -10,6 +10,7 @@ import { Stage } from './tryon.js';
 import { Sound } from './sound.js';
 import { postOnX } from '../../shared/share-x.js';
 import { initMeasure, loadFit } from './measure.js';
+import { initMakeup } from './makeup.js';
 
 const $ = (id) => document.getElementById(id);
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -564,6 +565,7 @@ initMeasure({
     sound.play('pick');
   },
 });
+initMakeup({ stage, ensureCamera: startCamera });
 
 // Test hook for headless checks: ?sample=<file>&photo=<url> puts a sample on a still photo.
 const params = new URLSearchParams(location.search);
