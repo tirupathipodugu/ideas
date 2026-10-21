@@ -93,16 +93,27 @@ function renderResults(items) {
   if (items === null) { wrap.hidden = false; box.innerHTML = '<p class="note">Searching Amazon…</p>'; return; }
   if (!items.length) { wrap.hidden = true; box.replaceChildren(); return; }
   const ul = document.createElement('ul');
-  ul.className = 'catalog';
+  ul.className = 'az-results';
   for (const it of items.slice(0, 30)) {
     if (!it.img) continue;
+    let title = (it.title || 'Amazon product').trim();
+    const m = title.match(/^sponsored\s*(ad)?\s*[-:–—]?\s*/i);   // Amazon prefixes sponsored listings
+    const sponsored = !!m;
+    if (m) title = title.slice(m[0].length).trim() || 'Amazon product';
     const li = document.createElement('li');
     const b = document.createElement('button');
     b.type = 'button';
-    b.innerHTML = `<img src="${esc(it.img)}" alt="" loading="lazy" width="112" height="112"><span>${esc(it.title || 'Amazon product')}</span>`;
+    b.className = 'az-card';
+    b.innerHTML =
+      `<span class="az-img"><img src="${esc(it.img)}" alt="" loading="lazy"></span>` +
+      '<span class="az-body">' +
+        (sponsored ? '<span class="az-spons">Sponsored</span>' : '') +
+        `<span class="az-title">${esc(title)}</span>` +
+        '<span class="az-try">Tap to try it on →</span>' +
+      '</span>';
     b.addEventListener('click', () => {
       sound.play('pick');
-      tryProduct({ title: it.title || 'Amazon product', words: it.title, tld, query: it.title }, it.img);
+      tryProduct({ title, words: title, tld, query: title }, it.img);
     });
     li.append(b);
     ul.append(li);
