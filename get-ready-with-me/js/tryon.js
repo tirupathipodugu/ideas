@@ -430,10 +430,11 @@ export class Stage {
     const { ctx } = this;
     const m = this.makeup;
     if (!m) return;
+    const intensity = m.intensity != null ? m.intensity : 0.55;
     if (m.lips) {
       ctx.save();
       ctx.globalCompositeOperation = 'multiply';
-      ctx.globalAlpha = 0.55;
+      ctx.globalAlpha = intensity;
       ctx.fillStyle = m.lips;
       ctx.beginPath();
       OUTER_LIPS.forEach((i, k) => { const p = P(i); k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
@@ -448,7 +449,7 @@ export class Stage {
       for (const ci of [50, 280]) {
         const c = P(ci), r = eyeD * 0.3;
         const g = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], r);
-        g.addColorStop(0, rgba(m.cheeks, 0.4));
+        g.addColorStop(0, rgba(m.cheeks, intensity * 0.65));
         g.addColorStop(1, rgba(m.cheeks, 0));
         ctx.save();
         ctx.globalCompositeOperation = 'multiply';
