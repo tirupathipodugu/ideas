@@ -241,13 +241,12 @@ function headwearAnchors(mask, b) {
 }
 
 function wristAnchors(px, W, mask, b, category) {
-  const rows = [];
-  let max = 0;
+  // First pass: widest row, pixel count and centroid of the opaque shape.
+  let max = 0, n = 0, sx = 0, sy = 0;
   for (let y = b.y0; y <= b.y1; y++) {
     let x0 = -1, x1 = -1;
-    for (let x = b.x0; x <= b.x1; x++) if (mask(x, y)) { if (x0 < 0) x0 = x; x1 = x; }
+    for (let x = b.x0; x <= b.x1; x++) if (mask(x, y)) { if (x0 < 0) x0 = x; x1 = x; n++; sx += x; sy += y; }
     const w = x0 < 0 ? 0 : x1 - x0 + 1;
-    rows.push(w);
     if (w > max) max = w;
   }
   const w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1;
@@ -255,22 +254,36 @@ function wristAnchors(px, W, mask, b, category) {
   if (!isWatch) {
     return { box: [b.x0, b.y0, b.x1, b.y1], isWatch: false, points: { center: [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2] }, span: w };
   }
-  // Watch case: rows that are nearly as wide as the widest row
-  let sy = 0, n = 0;
-  rows.forEach((rw, k) => { if (rw > max * 0.85) { sy += b.y0 + k; n++; } });
-  const cy = n ? sy / n : (b.y0 + b.y1) / 2;
+  // The strap runs along the shape's principal axis. Measure it from the image moments so a watch
+  // photographed at any angle is rotated to line up with the forearm, instead of assuming it is
+  // strap-vertical. (A strap-vertical catalogue render resolves to axis = PI/2, i.e. no change.)
+  const cx = sx / n, cy = sy / n;
+  let m20 = 0, m02 = 0, m11 = 0;
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (mask(x, y)) {
+    const dx = x - cx, dy = y - cy; m20 += dx * dx; m02 += dy * dy; m11 += dx * dy;
+  }
+  let axis = (m20 === m02 && m11 === 0) ? Math.PI / 2 : 0.5 * Math.atan2(2 * m11, m20 - m02);
+  if (Math.sin(axis) < 0) axis += Math.PI;                       // keep the dial upright (axis in [0, PI))
+  const ux = Math.cos(axis), uy = Math.sin(axis);                // along the strap
+  const vx = -uy, vy = ux;                                       // across the wrist (case width)
+  let vmin = Infinity, vmax = -Infinity;
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (mask(x, y)) {
+    const vv = (x - cx) * vx + (y - cy) * vy; if (vv < vmin) vmin = vv; if (vv > vmax) vmax = vv;
+  }
+  const span = Math.max(1, vmax - vmin);                         // case width -> scaled to the wrist
   return {
-    box: [b.x0, b.y0, b.x1, b.y1], isWatch: true, span: max,
-    points: { center: [(b.x0 + b.x1) / 2, cy] },
-    fade: { cy, keep: max * 0.75, soft: max * 0.45 },
+    box: [b.x0, b.y0, b.x1, b.y1], isWatch: true, span, axis,
+    points: { center: [cx, cy] },
+    fade: { cx, cy, ux, uy, keep: span * 0.55, soft: span * 0.5 },
   };
 }
 
-// The strap wraps round the wrist, so fade it out above and below the case.
+// The strap wraps round the wrist, so fade it out past the case along the strap (principal) axis.
 function fadeStrap(ctx, W, H, a) {
-  const { cy, keep, soft } = a.fade;
-  const g = ctx.createLinearGradient(0, cy - keep - soft, 0, cy + keep + soft);
-  const span = 2 * (keep + soft);
+  const { cx, cy, ux, uy, keep, soft } = a.fade;
+  const far = keep + soft;
+  const g = ctx.createLinearGradient(cx - ux * far, cy - uy * far, cx + ux * far, cy + uy * far);
+  const span = 2 * far;
   g.addColorStop(0, 'rgba(0,0,0,0)');
   g.addColorStop(soft / span, 'rgba(0,0,0,1)');
   g.addColorStop(1 - soft / span, 'rgba(0,0,0,1)');

@@ -9,12 +9,14 @@ import { loadImage, makeCutout } from './cutout.js';
 import { Stage } from './tryon.js';
 import { Sound } from './sound.js';
 import { postOnX } from '../../shared/share-x.js';
+import { initMeasure, loadFit } from './measure.js';
 
 const $ = (id) => document.getElementById(id);
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
 const sound = new Sound();
 const stage = new Stage($('stage'));
+stage.userFit = loadFit();
 let tld = pickStore();
 let current = null;       // the product being worn: { title, category, asin, tld, pageUrl, query, thumb, img }
 let pending = null;       // a pasted product link still waiting for its photo
@@ -542,6 +544,15 @@ initInputs();
 initSearchForm();
 initCamera();
 initCapture();
+initMeasure({
+  stage,
+  ensureCamera: startCamera,
+  onDone: () => {
+    const st = $('status');
+    if (st) { st.textContent = 'Fitted to you ✓ — items now scale to your size.'; st.hidden = false; setTimeout(() => { st.hidden = true; }, 2600); }
+    sound.play('pick');
+  },
+});
 
 // Test hook for headless checks: ?sample=<file>&photo=<url> puts a sample on a still photo.
 const params = new URLSearchParams(location.search);

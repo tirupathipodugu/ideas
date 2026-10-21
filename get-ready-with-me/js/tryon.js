@@ -127,6 +127,35 @@ export class Stage {
     return w && h ? [w, h] : null;
   }
 
+  /**
+   * Measure the user's face or hand once from the current source. Returns metrics normalised by the
+   * frame diagonal (resolution-independent), plus a distance-invariant `ratio`, or null if not found.
+   * Used by the one-time "Fit to me" onboarding so items are scaled to the user's real proportions.
+   */
+  async measure(kind) {
+    const size = this.sourceSize();
+    if (!size) return null;
+    const [sw, sh] = size;
+    const name = kind === 'hand' ? 'hand' : 'face';
+    let task;
+    try { task = await tracker(name); } catch { return null; }
+    let marks = null;
+    try { marks = detect(task, name, this.source); } catch { marks = null; }
+    if (!marks) return null;
+    const Q = (i) => [marks[i].x * sw, marks[i].y * sh];
+    const D = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const ref = Math.hypot(sw, sh) || 1;
+    if (name === 'hand') {
+      const wristW = D(Q(5), Q(17)), handLen = D(Q(0), Q(9));
+      if (!(wristW > 0 && handLen > 0)) return null;
+      return { kind: 'hand', wristW: wristW / ref, handLen: handLen / ref, ratio: wristW / handLen };
+    }
+    const faceW = D(Q(234), Q(454)), faceH = D(Q(10), Q(152));
+    const eyeDist = D(mid(Q(33), Q(133)), mid(Q(362), Q(263)));
+    if (!(faceW > 0 && eyeDist > 0)) return null;
+    return { kind: 'face', faceW: faceW / ref, faceH: faceH / ref, eyeDist: eyeDist / ref, ratio: eyeDist / faceW };
+  }
+
   async frame() {
     this.fit();
     const { ctx, canvas } = this;
@@ -350,7 +379,8 @@ export class Stage {
     const wristW = Math.max(len(sub(i5, p17)) * 0.92, handLen * 0.62);   // side-on hands: fall back to hand length
     const a = cut.anchors;
     const c = add(wrist, mul(d, handLen * ((a.isWatch ? 0.2 : 0.16) + this.lift * 0.3)));
-    const angle = Math.atan2(d[1], d[0]) - Math.PI / 2;
+    const spriteAxis = a.isWatch ? (a.axis ?? Math.PI / 2) : Math.PI / 2;   // watch: align its real strap axis
+    const angle = Math.atan2(d[1], d[0]) - spriteAxis;
     const sx = (wristW * (a.isWatch ? 1.0 : 1.22) * this.size) / a.span;
     const sy = a.isWatch ? sx : sx * 0.4;       // a bracelet is seen side-on round the wrist
     const pc = a.points.center;
