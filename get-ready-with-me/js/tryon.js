@@ -378,10 +378,10 @@ export class Stage {
     const handLen = len(sub(wrist, knuckle));
     const wristW = Math.max(len(sub(i5, p17)) * 0.92, handLen * 0.62);   // side-on hands: fall back to hand length
     const a = cut.anchors;
-    const c = add(wrist, mul(d, handLen * ((a.isWatch ? 0.2 : 0.16) + this.lift * 0.3)));
+    const c = add(wrist, mul(d, handLen * ((a.isWatch ? 0.12 : 0.16) + this.lift * 0.3)));
     const spriteAxis = a.isWatch ? (a.axis ?? Math.PI / 2) : Math.PI / 2;   // watch: align its real strap axis
     const angle = Math.atan2(d[1], d[0]) - spriteAxis;
-    const sx = (wristW * (a.isWatch ? 1.0 : 1.22) * this.size) / a.span;
+    const sx = (wristW * (a.isWatch ? 0.72 : 1.22) * this.size) / a.span;
     const sy = a.isWatch ? sx : sx * 0.4;       // a bracelet is seen side-on round the wrist
     const pc = a.points.center;
     for (const pass of ['shadow', 'item']) {
