@@ -123,6 +123,12 @@ function renderResults(items) {
   wrap.hidden = false;
 }
 
+async function searchStore(q, store) {
+  const r = await fetch(`${WORKER}/?q=${encodeURIComponent(q)}&store=${encodeURIComponent(store)}`);
+  if (!r.ok) throw new Error('search ' + r.status);
+  return r.json();
+}
+
 async function runSearch(q) {
   showClothing(false);
   if (!WORKER) { sound.play('tick'); window.open(searchUrl(tld, q, tagFor(tld)), '_blank', 'noopener'); return; }
@@ -130,20 +136,23 @@ async function runSearch(q) {
   say('');
   renderResults(null);
   try {
-    const r = await fetch(`${WORKER}/?q=${encodeURIComponent(q)}&store=${encodeURIComponent(tld)}`);
-    if (!r.ok) throw new Error('search ' + r.status);
-    const data = await r.json();
-    if (data.blocked) {
-      renderResults([]);
-      say('Amazon blocked that search from the server (it does that to automated requests). Try again in a moment, or paste a product link or drop a photo below.', 'warn');
-      return;
+    let data = await searchStore(q, tld);
+    let from = tld;
+    // Amazon serves our server a tiny "automated access" block page for some stores (often .com/.co.uk),
+    // so they come back empty. amazon.in stays reachable — fall back to it so results still show up.
+    if ((data.blocked || !data.items || !data.items.length) && tld !== 'in') {
+      const alt = await searchStore(q, 'in').catch(() => null);
+      if (alt && alt.items && alt.items.length) { data = alt; from = 'in'; }
     }
     if (!data.items || !data.items.length) {
       renderResults([]);
-      say(`No products found for “${esc(q)}”. Try different words, or paste a product link below.`, 'warn');
+      say(data.blocked
+        ? 'Amazon blocked that search from the server. Try again in a moment, or paste a product link / drop a photo below.'
+        : `No products found for “${esc(q)}”. Try different words, or paste a product link below.`, 'warn');
       return;
     }
     renderResults(data.items);
+    if (from !== tld) say('Your store blocked the server just now, so these are from amazon.in — tap any to try it on.');
   } catch {
     renderResults([]);
     say("Couldn't reach the search service just now. You can still paste a product link or drop a photo below.", 'warn');
@@ -573,4 +582,12 @@ initMakeup({ stage, ensureCamera: startCamera });
 // Test hook for headless checks: ?sample=<file>&photo=<url> puts a sample on a still photo.
 const params = new URLSearchParams(location.search);
 if (params.get('photo')) loadImage(params.get('photo')).then((img) => { stage.setSource(img, false); $('start').hidden = true; });
+function playVideoSource(src) {
+  const v = document.createElement('video');
+  v.src = src; v.loop = true; v.muted = true; v.playsInline = true; v.crossOrigin = 'anonymous'; v.autoplay = true;
+  v.addEventListener('loadeddata', () => { stage.setSource(v, false); $('start').hidden = true; });
+  v.play().catch(() => {});
+}
+window.__grwmVideo = playVideoSource; // dev hook: swap the demo clip without a page reload
+if (params.get('video')) playVideoSource(params.get('video'));
 if (params.get('sample')) { const item = CATALOG.find((c) => c.file.startsWith(params.get('sample'))); if (item) tryProduct({ ...item }, `assets/catalog/${item.file}`); }
