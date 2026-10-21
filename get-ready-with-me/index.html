@@ -40,25 +40,6 @@
 <main class="panels">
   <section class="panel find" id="find" aria-label="Find a product">
     <div class="block">
-      <h2 class="block-title">Drop a photo</h2>
-      <label class="drop" id="drop">
-        <input id="file" type="file" accept="image/*" hidden>
-        <svg class="icon big" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4h16v-4"/></svg>
-        <span><b>Choose a product photo</b> or drop it here</span>
-        <span class="note">Works best on a plain white background, like Amazon's main photos.</span>
-      </label>
-    </div>
-
-    <div class="block">
-      <div class="block-head">
-        <h2 class="block-title">Samples</h2>
-        <div class="chips small" id="filters" role="group" aria-label="Filter samples"></div>
-      </div>
-      <ul class="catalog" id="catalog"></ul>
-      <p class="note">Sample products are our own renders, to show how it works.</p>
-    </div>
-
-    <div class="block">
       <h2 class="block-title">Search Amazon</h2>
       <form class="field-row" id="search-form">
         <input class="field" id="search-text" type="search" placeholder="e.g. aviator sunglasses" autocomplete="off" aria-label="Search text">
@@ -74,14 +55,6 @@
       <p class="notice-text">Shirts and pants are coming soon 👕👖 Want them sooner? Comment on <a id="post-link" href="https://x.com/tirupathipodugu" target="_blank" rel="noopener">the post on X</a> and tell us what you want to try on.</p>
     </div>
 
-    <div class="block">
-      <h2 class="block-title">Paste a link</h2>
-      <form class="field-row" id="link-form">
-        <input class="field" id="link-text" type="url" placeholder="Amazon product link or image address" autocomplete="off" aria-label="Amazon product link or image address">
-        <button class="button" type="submit">Use link</button>
-      </form>
-      <p class="note">On Amazon, right-click the product photo and choose <b>Copy image address</b> to paste the photo itself.</p>
-    </div>
 
     <div class="message" id="message" hidden role="status"></div>
 

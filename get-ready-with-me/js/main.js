@@ -362,19 +362,23 @@ function useFile(file) {
 }
 
 function initInputs() {
-  $('link-form').addEventListener('submit', (e) => { e.preventDefault(); const v = $('link-text').value; if (v.trim()) useProductLink(v); });
-  $('file').addEventListener('change', (e) => { useFile(e.target.files[0]); e.target.value = ''; });
+  const linkForm = $('link-form');
+  if (linkForm) linkForm.addEventListener('submit', (e) => { e.preventDefault(); const v = $('link-text').value; if (v.trim()) useProductLink(v); });
+  const fileEl = $('file');
+  if (fileEl) fileEl.addEventListener('change', (e) => { useFile(e.target.files[0]); e.target.value = ''; });
   const drop = $('drop');
-  const over = (on) => (e) => { e.preventDefault(); drop.classList.toggle('over', on); };
-  drop.addEventListener('dragover', over(true));
-  drop.addEventListener('dragleave', over(false));
-  drop.addEventListener('drop', (e) => {
-    over(false)(e);
-    const file = e.dataTransfer.files[0];
-    if (file) { useFile(file); return; }
-    const uri = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-    if (uri) useProductLink(uri.split('\n')[0]);
-  });
+  if (drop) {
+    const over = (on) => (e) => { e.preventDefault(); drop.classList.toggle('over', on); };
+    drop.addEventListener('dragover', over(true));
+    drop.addEventListener('dragleave', over(false));
+    drop.addEventListener('drop', (e) => {
+      over(false)(e);
+      const file = e.dataTransfer.files[0];
+      if (file) { useFile(file); return; }
+      const uri = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+      if (uri) useProductLink(uri.split('\n')[0]);
+    });
+  }
   // Pasting a photo or a link anywhere on the page
   document.addEventListener('paste', (e) => {
     if (e.target.closest('input, textarea')) return;
@@ -551,7 +555,6 @@ function initChrome() {
 
 initChrome();
 initStore();
-initCatalog();
 initInputs();
 initSearchForm();
 initCamera();
