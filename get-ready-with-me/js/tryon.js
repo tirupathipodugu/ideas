@@ -180,56 +180,66 @@ export class Stage {
     ctx.drawImage(this.source, ox, oy, sw * k, sh * k);
     ctx.restore();
 
-    // Makeup mode: tint the lips / cheeks on the live face, independent of any product.
-    if (this.makeup && (this.makeup.lips || this.makeup.cheeks)) {
-      let task;
-      try { task = await tracker('face'); } catch { return; }
-      let marks = null;
-      if (!this.busy) { this.busy = true; try { marks = detect(task, 'face', this.source); } catch { marks = null; } this.busy = false; }
-      if (marks) {
-        this.lastSeen = performance.now();
-        this.say('');
-        const P = (i) => { const mk = marks[i]; const x = ox + mk.x * sw * k, y = oy + mk.y * sh * k; return [this.mirrored ? W - x : x, y]; };
-        this.drawMakeup(P);
-      } else if (performance.now() - this.lastSeen > 600) {
-        this.say('Look at the camera so it can find your face.');
-      }
-      return;
-    }
-
+    // Makeup and a worn product render together: makeup + face items (glasses, caps,
+    // earrings) share ONE face detection; a wrist item (watch) adds a pose pass.
+    const makeOn = !!(this.makeup && (this.makeup.lips || this.makeup.cheeks));
     const cut = this.product;
-    if (!cut) return;
-    const name = cut.kind === 'wrist' ? 'pose' : 'face';
-    let task;
-    try { task = await tracker(name); } catch { return; }
-    let marks = null;
-    const still = !this.source.videoWidth;
-    if (still && this.cached && this.cached.name === name) marks = this.cached.marks;
-    else if (!this.busy) {
-      this.busy = true;
-      try { marks = detect(task, name, this.source); } catch { marks = null; }
-      this.busy = false;
-      if (still) this.cached = { name, marks };
-    }
-    const now = performance.now();
-    if (!marks) {
-      if (now - this.lastSeen > 600) {
-        this.say(name === 'pose' ? 'Hold your arm up so the camera can see your forearm and elbow.' : 'Look at the camera so it can find your face.');
-        this.smooth.reset();
-      }
-      return;
-    }
-    this.lastSeen = now;
-    this.say('');
-    const P = (i) => {
-      const m = marks[i];
-      const x = ox + m.x * sw * k, y = oy + m.y * sh * k;
+    const faceCut = !!cut && cut.kind !== 'wrist';
+    const wristCut = !!cut && cut.kind === 'wrist';
+    if (!makeOn && !cut) return;
+
+    const toCanvas = (marks) => (i) => {
+      const mk = marks[i];
+      const x = ox + mk.x * sw * k, y = oy + mk.y * sh * k;
       return [this.mirrored ? W - x : x, y];
     };
-    if (cut.kind === 'glasses') this.drawGlasses(P, cut);
-    else if (cut.kind === 'headwear') this.drawHeadwear(P, cut);
-    else if (cut.kind === 'earrings') this.drawEarrings(P, cut);
-    else this.drawWrist(P, cut, marks);
+
+    let drew = false;
+
+    // Face pass — makeup and any face-worn product come from the same landmarks.
+    if (makeOn || faceCut) {
+      const marks = await this.detectMarks('face');
+      if (marks) {
+        const P = toCanvas(marks);
+        if (makeOn) this.drawMakeup(P);          // makeup first, so the product sits on top
+        if (faceCut) {
+          if (cut.kind === 'glasses') this.drawGlasses(P, cut);
+          else if (cut.kind === 'headwear') this.drawHeadwear(P, cut);
+          else if (cut.kind === 'earrings') this.drawEarrings(P, cut);
+        }
+        drew = true;
+      }
+    }
+
+    // Pose pass — wrist items (watch / bracelet) track the forearm.
+    if (wristCut) {
+      const marks = await this.detectMarks('pose');
+      if (marks) { this.drawWrist(toCanvas(marks), cut, marks); drew = true; }
+    }
+
+    const now = performance.now();
+    if (drew) { this.lastSeen = now; this.say(''); }
+    else if (now - this.lastSeen > 600) {
+      this.smooth.reset();
+      this.say(wristCut && !makeOn && !faceCut
+        ? 'Hold your arm up so the camera can see your forearm and elbow.'
+        : 'Look at the camera so it can find your face.');
+    }
+  }
+
+  // One tracked detection for a model ('face' | 'pose'), reusing the still-photo cache.
+  async detectMarks(name) {
+    let task;
+    try { task = await tracker(name); } catch { return null; }
+    const still = !this.source.videoWidth;
+    if (still && this.cached && this.cached[name] !== undefined) return this.cached[name];
+    if (this.busy) return null;
+    this.busy = true;
+    let marks = null;
+    try { marks = detect(task, name, this.source); } catch { marks = null; }
+    this.busy = false;
+    if (still) { if (!this.cached) this.cached = {}; this.cached[name] = marks; }
+    return marks;
   }
 
   /** Shared face frame: eye line, up vector, face width/height, yaw (+ = far side is screen-left). */
