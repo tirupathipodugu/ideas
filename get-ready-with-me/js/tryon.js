@@ -93,7 +93,7 @@ export class Stage {
     this.product = cut;
     this.cached = null;
     this.smooth.reset();
-    if (cut) tracker(cut.kind === 'wrist' ? 'hand' : 'face').catch(() => this.say('Tracking could not start in this browser.'));
+    if (cut) tracker(cut.kind === 'wrist' ? 'pose' : 'face').catch(() => this.say('Tracking could not start in this browser.'));
   }
 
   say(text) {
@@ -175,7 +175,7 @@ export class Stage {
 
     const cut = this.product;
     if (!cut) return;
-    const name = cut.kind === 'wrist' ? 'hand' : 'face';
+    const name = cut.kind === 'wrist' ? 'pose' : 'face';
     let task;
     try { task = await tracker(name); } catch { return; }
     let marks = null;
@@ -190,7 +190,7 @@ export class Stage {
     const now = performance.now();
     if (!marks) {
       if (now - this.lastSeen > 600) {
-        this.say(name === 'hand' ? 'Hold your wrist up to the camera, back of the hand facing it.' : 'Look at the camera so it can find your face.');
+        this.say(name === 'pose' ? 'Hold your arm up so the camera can see your forearm and elbow.' : 'Look at the camera so it can find your face.');
         this.smooth.reset();
       }
       return;
@@ -205,7 +205,7 @@ export class Stage {
     if (cut.kind === 'glasses') this.drawGlasses(P, cut);
     else if (cut.kind === 'headwear') this.drawHeadwear(P, cut);
     else if (cut.kind === 'earrings') this.drawEarrings(P, cut);
-    else this.drawWrist(P, cut);
+    else this.drawWrist(P, cut, marks);
   }
 
   /** Shared face frame: eye line, up vector, face width/height, yaw (+ = far side is screen-left). */
@@ -367,21 +367,26 @@ export class Stage {
     });
   }
 
-  drawWrist(P, cut) {
+  // Watches/bracelets ride the forearm. Pose gives the elbow and wrist, so the strap lines up with the
+  // real forearm at any wrist angle (the hand tracker only saw the hand, which misaligned on a bent wrist).
+  drawWrist(P, cut, marks) {
     const { ctx } = this;
     const sm = this.smooth;
-    const w0 = P(0), m9 = P(9);
-    const scaleRef = len(sub(w0, m9));
-    const wrist = sm.get('w', w0, scaleRef), knuckle = sm.get('m', m9, scaleRef);
-    const i5 = sm.get('i', P(5), scaleRef), p17 = sm.get('p', P(17), scaleRef);
-    const d = norm(sub(wrist, knuckle));
-    const handLen = len(sub(wrist, knuckle));
-    const wristW = Math.max(len(sub(i5, p17)) * 0.92, handLen * 0.62);   // side-on hands: fall back to hand length
+    // Pick the more-visible arm (person's left = elbow 13 / wrist 15, right = 14 / 16).
+    const vis = (i) => (marks && marks[i] && marks[i].visibility != null) ? marks[i].visibility : 0.5;
+    const right = (vis(14) + vis(16)) >= (vis(13) + vis(15));
+    const ei = right ? 14 : 13, wi = right ? 16 : 15;
+    const scaleRef = len(sub(P(wi), P(ei))) || 1;
+    const wrist = sm.get('w', P(wi), scaleRef);
+    const elbow = sm.get('e', P(ei), scaleRef);
+    const foreLen = len(sub(wrist, elbow)) || 1;
+    const d = norm(sub(elbow, wrist));          // from the wrist down the forearm toward the elbow
     const a = cut.anchors;
-    const c = add(wrist, mul(d, handLen * ((a.isWatch ? 0.12 : 0.16) + this.lift * 0.3)));
+    const c = add(wrist, mul(d, foreLen * ((a.isWatch ? 0.10 : 0.07) + this.lift * 0.18)));
     const spriteAxis = a.isWatch ? (a.axis ?? Math.PI / 2) : Math.PI / 2;   // watch: align its real strap axis
     const angle = Math.atan2(d[1], d[0]) - spriteAxis;
-    const sx = (wristW * (a.isWatch ? 0.72 : 1.22) * this.size) / a.span;
+    const wristW = foreLen * 0.17;              // a wrist is roughly a sixth of the forearm length
+    const sx = (wristW * (a.isWatch ? 1.0 : 1.22) * this.size) / a.span;
     const sy = a.isWatch ? sx : sx * 0.4;       // a bracelet is seen side-on round the wrist
     const pc = a.points.center;
     for (const pass of ['shadow', 'item']) {

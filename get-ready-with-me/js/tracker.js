@@ -19,6 +19,12 @@ async function create(name) {
       runningMode: 'VIDEO', numFaces: 1,
       minFaceDetectionConfidence: 0.5, minFacePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
     })
+    : name === 'pose'
+    ? vision.PoseLandmarker.createFromOptions(FILESET, {   // forearm (elbow->wrist) for watches
+      baseOptions: { modelAssetPath: BASE + 'pose_landmarker.task', delegate },
+      runningMode: 'VIDEO', numPoses: 1,
+      minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+    })
     : vision.HandLandmarker.createFromOptions(FILESET, {
       baseOptions: { modelAssetPath: BASE + 'hand_landmarker.task', delegate },
       runningMode: 'VIDEO', numHands: 1,
