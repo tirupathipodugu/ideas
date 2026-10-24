@@ -4,7 +4,7 @@ import { places, isLand, followSun, HALF } from './world.js';
 import { vehicles, nearestVehicle, hurtVehicle, fwdVec, rightVec, removeVehicle } from './vehicles.js';
 import { makeHuman, animHuman, peds, hurtPed, setOnFire, panic, spawnPed } from './peds.js';
 import { drones, hurtDrone } from './drones.js';
-import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust, flareTrail, thrust } from './fx.js';
+import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust, flareTrail, flareBurn, muzzle, thrust } from './fx.js';
 import { sfx, audioFrame, nextStation } from './audio.js';
 
 export const WEAPONS = [
@@ -33,17 +33,32 @@ const gun = new THREE.Group();
   gun.add(tube, tank);
   scene.add(gun);
 }
-// The flare gun: a chunky orange pistol with a wide barrel.
+// The flare gun: an orange 12-gauge flare pistol. Fat barrel with a dark bore, frame, hammer,
+// trigger guard and a ribbed grip, about 25 cm long. +z is the way it points.
 const flareGun = new THREE.Group();
 {
-  const orange = new THREE.MeshStandardMaterial({ color: 0xff6a1a, roughness: 0.45 });
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.32, 14), orange);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = 0.14;
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.08), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 }));
-  grip.position.set(0, -0.1, 0);
-  grip.rotation.x = -0.3;
-  flareGun.add(barrel, grip);
+  const orange = new THREE.MeshPhysicalMaterial({ color: 0xff5a10, roughness: 0.42, clearcoat: 0.4 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.55, metalness: 0.4 });
+  const part = (geo, mat, x, y, z, rx = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.x = rx;
+    m.castShadow = true;
+    flareGun.add(m);
+    return m;
+  };
+  part(new THREE.CylinderGeometry(0.026, 0.028, 0.17, 18), orange, 0, 0.03, 0.1, Math.PI / 2);
+  part(new THREE.CylinderGeometry(0.031, 0.031, 0.025, 18), orange, 0, 0.03, 0.18, Math.PI / 2);
+  part(new THREE.CylinderGeometry(0.018, 0.018, 0.03, 14), dark, 0, 0.03, 0.188, Math.PI / 2);
+  part(new THREE.BoxGeometry(0.044, 0.056, 0.085), orange, 0, 0.022, -0.02);
+  part(new THREE.BoxGeometry(0.012, 0.028, 0.018), dark, 0, 0.058, -0.06, -0.5);
+  const grip = part(new THREE.BoxGeometry(0.036, 0.11, 0.05), orange, 0, -0.045, -0.05, -0.32);
+  for (let k = 0; k < 4; k++) part(new THREE.BoxGeometry(0.038, 0.006, 0.04), dark, 0, -0.012 - k * 0.022, -0.04 - k * 0.0075, -0.32);
+  const guard = part(new THREE.TorusGeometry(0.022, 0.004, 6, 16, Math.PI), orange, 0, -0.012, 0.012);
+  guard.rotation.set(Math.PI, Math.PI / 2, 0);
+  part(new THREE.BoxGeometry(0.006, 0.022, 0.006), dark, 0, -0.008, 0.01, 0.3);
+  void grip;
+  flareGun.rotation.order = 'YXZ';
   flareGun.visible = false;
   scene.add(flareGun);
 }
@@ -53,10 +68,13 @@ const placeGun = () => {
   if (!gun.visible && !flareGun.visible) return;
   if (body.hand) body.hand.getWorldPosition(_hand);
   else _hand.copy(me.pos).add(new V3(0.3, 1.1, 0.3));
-  for (const g of [gun, flareGun]) {
-    g.position.copy(_hand);
-    g.rotation.set(0, me.yaw, 0);
-  }
+  gun.position.copy(_hand);
+  gun.rotation.set(0, me.yaw, 0);
+  // The flare pistol points where you aim, and kicks up when it fires.
+  flareGun.position.copy(_hand);
+  const aiming = me.coolFlare > -0.6 || firing();
+  const d = aimDir();
+  flareGun.rotation.set(-(aiming ? Math.asin(clamp(d.y, -1, 1)) : 0.5) - (me.recoil || 0) * 0.7, aiming ? look.yaw : me.yaw, 0);
 };
 
 /* ---------------- damage and death ---------------- */
@@ -300,73 +318,111 @@ const fireCoil = () => {
   panic(to, 30);
 };
 
-// Flare gun: a burning flare arcs out, sticks, sets people alight and bursts. Rogue robots go down in two.
+// Flare gun: a burning flare arcs out like the real thing. Whatever it hits catches fire; then it lies
+// where it lands, burning red for a few seconds. Rogue robots go down fast.
 const flares = [];
-const GRAV = 9;
+const GRAV = 9.8;
+// A few lights shared by the newest flares, so the scene's light count never changes.
+const flareLights = [0, 1, 2].map(() => {
+  const l = new THREE.PointLight(0xff2a40, 0, 24, 1.6);
+  scene.add(l);
+  return l;
+});
 const fireFlare = () => {
   if (me.coolFlare > 0) return;
-  if (G.ammo[4] <= 0) G.ammo[4] = Infinity;
-  me.coolFlare = 0.6;
-  G.ammo[4]--;
-  const from = G.mode === 'car' ? G.car.pos.clone().setY(G.car.pos.y + G.car.spec.h + 0.6) : handPos();
-  const dir = G.mode === 'car' ? fwdVec(G.car.yaw, new V3()).setY(0.05).normalize() : aimDir();
-  const speed = 42;
+  me.coolFlare = 0.7;
+  me.recoil = 1;
+  const inCar = G.mode === 'car' && G.car;
+  const dir = inCar ? fwdVec(G.car.yaw, new V3()).setY(0.08).normalize() : aimDir();
+  const from = inCar ? G.car.pos.clone().setY(G.car.pos.y + G.car.spec.h + 0.6) : flareGun.localToWorld(new V3(0, 0.03, 0.2));
+  const speed = 58;
   const vel = dir.clone().multiplyScalar(speed);
   // Lob it onto whatever you are roughly pointing at.
-  const t = autoAim(from, dir, 70, 0.3);
+  const t = autoAim(from, dir, 80, 0.25);
   if (t) {
     const to = t.at.clone().sub(from);
     const time = to.length() / speed;
     vel.copy(to).divideScalar(time);
     vel.y += 0.5 * GRAV * time;
-  } else vel.y += 3;
-  const light = new THREE.PointLight(0xff3050, 60, 22, 1.6);
-  light.position.copy(from);
-  scene.add(light);
-  flares.push({ pos: from.clone(), vel, life: 4, light, by: G.mode === 'car' ? G.car : null });
+  } else vel.y += 2;
+  if (flares.length > 10) flares.shift();
+  flares.push({ pos: from.clone(), vel, life: 6, burn: 0, by: inCar ? G.car : null, hit: false });
+  muzzle(from, dir);
   sfx.flare();
   panic(me.pos, 20);
 };
-const burstFlare = (f, direct) => {
-  const at = f.pos.clone();
-  scene.remove(f.light);
-  f.light.dispose();
-  explode(at, 0.4);
-  sparks(at, 30, 0xff3050);
-  sfx.boom(0.55);
-  addShake(0.25);
-  if (direct?.kind === 'ped') {
-    hurtPed(direct.o, direct.o.kind === 'bot' ? 45 : 30, at, 'player', 6);
-    setOnFire(direct.o, 'player');
-  } else if (direct?.kind === 'car') hurtVehicle(direct.o, 30, 'player');
-  else if (direct?.kind === 'drone') hurtDrone(direct.o, 60, 'player');
-  for (const p of peds) if (p.state !== 'dead' && p.pos.distanceTo(at) < 4) setOnFire(p, 'player');
-  G.onExplosion(at, 4.5, { byPlayer: true });
+const hitWith = (f, t) => {
+  const at = f.pos;
+  sparks(at.clone(), 24, 0xff3050);
+  sfx.punch();
+  if (t.kind === 'ped') {
+    hurtPed(t.o, t.o.kind === 'bot' ? 38 : 20, at, 'player', 3);
+    setOnFire(t.o, 'player');
+  } else if (t.kind === 'car') {
+    hurtVehicle(t.o, 18, 'player');
+    if (Math.random() < 0.3) t.o.fire = Math.max(t.o.fire, 0.01);
+  } else if (t.kind === 'drone') {
+    t.o.fire = Math.max(t.o.fire || 0, 0.01);
+    t.o.firedBy = 'player';
+    hurtDrone(t.o, 60, 'player');
+  }
 };
 const stepFlares = dt => {
+  me.recoil = Math.max(0, (me.recoil || 0) - dt * 6);
   for (let i = flares.length - 1; i >= 0; i--) {
     const f = flares[i];
     f.life -= dt;
-    f.vel.y -= GRAV * dt;
-    f.pos.addScaledVector(f.vel, dt);
-    f.light.position.copy(f.pos);
-    f.light.intensity = 50 + Math.random() * 30;
-    flareTrail(f.pos);
-    let direct = null;
-    for (const t of targets()) {
-      if (t.o === f.by) continue;
-      const r = t.kind === 'car' ? 2.2 : t.kind === 'drone' ? 1.6 : 1.1;
-      if (t.at.distanceTo(f.pos) < r) {
-        direct = t;
-        break;
+    if (!f.burn) {
+      // In flight: gravity, a little drag, a red-lit smoke trail.
+      f.vel.y -= GRAV * dt;
+      f.vel.multiplyScalar(1 - 0.12 * dt);
+      f.pos.addScaledVector(f.vel, dt);
+      flareTrail(f.pos);
+      if (!f.hit)
+        for (const t of targets()) {
+          if (t.o === f.by) continue;
+          const r = t.kind === 'car' ? 2.2 : t.kind === 'drone' ? 1.6 : 1.0;
+          if (t.at.distanceTo(f.pos) < r) {
+            f.hit = true;
+            hitWith(f, t);
+            f.vel.multiplyScalar(-0.15).setY(1);
+            break;
+          }
+        }
+      // Bounce off walls and the ground, then settle and burn.
+      if (insideSolid(f.pos.x, f.pos.z, f.pos.y)) {
+        f.pos.addScaledVector(f.vel, -dt);
+        f.vel.set(-f.vel.x * 0.25, f.vel.y * 0.3, -f.vel.z * 0.25);
+        sparks(f.pos.clone(), 10, 0xff4050);
       }
-    }
-    const wall = insideSolid(f.pos.x, f.pos.z, f.pos.y);
-    if (direct || wall || f.pos.y < 0.15 || f.life <= 0) {
-      burstFlare(f, direct);
-      flares.splice(i, 1);
+      if (f.pos.y < 0.12) {
+        f.pos.y = 0.12;
+        if (Math.abs(f.vel.y) > 4) {
+          f.vel.y = -f.vel.y * 0.3;
+          f.vel.x *= 0.45;
+          f.vel.z *= 0.45;
+          sparks(f.pos.clone(), 12, 0xff4050);
+        } else {
+          f.burn = 7;
+          f.vel.set(0, 0, 0);
+        }
+      }
+      if (f.life <= 0 && !f.burn) f.burn = 3;
+    } else {
+      f.burn -= dt;
+      flareBurn(f.pos);
+      // Anyone standing on it catches fire.
+      for (const p of peds) if (p.state !== 'dead' && p.fire <= 0 && p.pos.distanceTo(f.pos) < 1.4) setOnFire(p, 'player');
+      if (f.burn <= 0) flares.splice(i, 1);
     }
   }
+  // Light the newest three.
+  flareLights.forEach((l, k) => {
+    const f = flares[flares.length - 1 - k];
+    if (!f) return void (l.intensity = 0);
+    l.position.copy(f.pos).setY(f.pos.y + 0.4);
+    l.intensity = (f.burn ? Math.min(1, f.burn) * 55 : 45) * (0.75 + Math.random() * 0.5);
+  });
 };
 
 // Starlink Strike: mark a spot, and a beam from orbit lands on it.
@@ -641,7 +697,7 @@ const footStep = dt => {
   }
   body.root.position.copy(me.pos);
   body.root.rotation.y = me.yaw;
-  animHuman(body, me.speed, dt, me.punch > 0 ? 'punch' : (G.weapon > 0 && firing()) || (G.weapon === 4 && me.coolFlare > 0.2) ? 'aim' : 'stand');
+  animHuman(body, me.speed, dt, me.punch > 0 ? 'punch' : (G.weapon > 0 && firing()) || (G.weapon === 4 && me.coolFlare > -0.6) ? 'aim' : 'stand');
   placeGun();
 };
 
@@ -682,14 +738,39 @@ const carStep = dt => {
   inp.boost = keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.boost;
   inp.handbrake = !v.flying && (keys.has('Space') || touch.jump);
   inp.up = v.flying ? (keys.has('Space') || touch.up ? 1 : 0) - (keys.has('KeyC') || keys.has('ControlLeft') || touch.down ? 1 : 0) : 0;
+  // G: take off. In the air, a tap lowers the car a few metres and holding it brings it down steadily to land.
+  const gDown = keys.has('KeyG') || touch.fly;
   if ((hit('KeyG') || touch.flyPressed) && v.spec.canFly && !v.dead) {
-    v.flying = !v.flying;
-    if (v.flying) {
+    if (!v.flying) {
+      v.flying = true;
       v.vy = 6;
+      v.gHold = -1;
+      v.dropTo = null;
       sfx.whoosh();
-      bus.toast('Flight mode: Space up, C down, G to land');
+      bus.toast(IS_MOBILE ? 'Flying: UP climbs, tap FLY to dip, hold FLY to come down' : 'Flying: Space climbs, tap G to dip, hold G to come down');
       G.onFly?.(v);
-    } else bus.toast('Thrusters off');
+    } else {
+      v.gHold = 0;
+      v.dropTo = Math.max(0, v.pos.y - 4);
+    }
+  }
+  if (v.flying) {
+    if (gDown && v.gHold >= 0) v.gHold += dt;
+    let up = inp.up;
+    if (gDown && v.gHold > 0.25) {
+      up = Math.min(up, -0.8);
+      v.dropTo = null;
+    } else if (v.dropTo != null) {
+      if (v.pos.y > v.dropTo + 0.3 && up <= 0) up = Math.min(up, -0.6);
+      else v.dropTo = null;
+    }
+    inp.up = up;
+    // Touching down while coming down lands it.
+    if (v.pos.y < 0.3 && up < 0) {
+      v.flying = false;
+      v.dropTo = null;
+      bus.toast('Landed');
+    }
   }
   // 2026 Roadster: cold-gas thrusters kick it off the ground into a barrel roll.
   if ((hit('KeyB') || touch.stuntPressed) && v.spec.canFly && !v.dead && !(v.spinT > 0)) {

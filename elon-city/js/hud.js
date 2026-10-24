@@ -425,7 +425,7 @@ const controlRows = () => {
     const rows = m
       ? [['Stick', 'steer · gas · brake'], ['BOOST', 'boost'], ['JUMP', 'handbrake'], ['ENTER', 'get out']]
       : [['W S', 'gas · brake'], ['A D', 'steer'], ['Shift', 'boost'], ['Space', v.flying ? 'fly up' : 'handbrake'], ['F', 'get out'], ['H R', 'horn · radio']];
-    if (v.spec.canFly) rows.push(...(m ? [['FLY', v.flying ? 'land' : 'fly'], ['UP DOWN', 'climb · descend'], ['ROLL', 'thruster hop + barrel roll']] : [['G', v.flying ? 'land' : 'fly'], ['C', 'descend'], ['B', 'thruster hop + barrel roll']]));
+    if (v.spec.canFly) rows.push(...(m ? [['FLY', v.flying ? 'tap: dip · hold: come down' : 'take off'], ['UP DOWN', 'climb · descend'], ['ROLL', 'thruster hop + barrel roll']] : [['G', v.flying ? 'tap: dip · hold: come down' : 'take off'], ['Space C', 'climb · descend'], ['B', 'thruster hop + barrel roll']]));
     if (G.weapons[3] || G.weapons[4]) rows.push(m ? ['FIRE', 'Starlink / flare'] : ['Click', 'Starlink strike / flare']);
     return [v.name, rows];
   }

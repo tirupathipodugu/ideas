@@ -109,10 +109,22 @@ export const sparks = (at, n = 12, color = 0xffd27a) => {
   for (let k = 0; k < n; k++) glow.emit(at, new V3(rnd(-8, 8), rnd(2, 10), rnd(-8, 8)), { life: rnd(0.3, 0.7), s0: 0.35, s1: 0.1, c0: 0xffffff, c1: color, g: -18 });
 };
 
-// A flare in flight: a white-hot core with a pink-red tail and drifting smoke.
+// A flare in flight: a small white-hot core and a long trail of red-lit smoke that hangs in the air.
 export const flareTrail = at => {
-  for (let k = 0; k < 2; k++) glow.emit(at, new V3(rnd(-0.6, 0.6), rnd(-0.2, 0.8), rnd(-0.6, 0.6)), { life: rnd(0.3, 0.6), s0: 1.3, s1: 0.2, c0: 0xffffff, c1: 0xff2a50, a0: 1, a1: 0 });
-  if (Math.random() < 0.6) smoke.emit(at, new V3(rnd(-0.4, 0.4), 1.2, rnd(-0.4, 0.4)), { life: 1.6, s0: 0.5, s1: 2.8, c0: 0xffb0bc, c1: 0x6a4a50, a0: 0.35, a1: 0 });
+  glow.emit(at, new V3(rnd(-0.3, 0.3), rnd(-0.3, 0.3), rnd(-0.3, 0.3)), { life: rnd(0.08, 0.16), s0: 0.9, s1: 0.3, c0: 0xffffff, c1: 0xff3048, a0: 1, a1: 0 });
+  glow.emit(at, new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)), { life: rnd(0.2, 0.4), s0: 0.35, s1: 0.1, c0: 0xffd0d8, c1: 0xff2030, a0: 1, a1: 0, g: -6 });
+  smoke.emit(at, new V3(rnd(-0.3, 0.3), rnd(0.2, 0.6), rnd(-0.3, 0.3)), { life: rnd(2.5, 4), s0: 0.35, s1: 2.6, c0: 0xffb6c0, c1: 0x9a8a8e, a0: 0.55, a1: 0, drag: 0.8 });
+};
+// A flare burning where it landed: flickering core, sparks spitting up, a column of pink smoke.
+export const flareBurn = at => {
+  glow.emit(at, new V3(rnd(-0.3, 0.3), rnd(0.3, 1.2), rnd(-0.3, 0.3)), { life: rnd(0.1, 0.22), s0: rnd(0.8, 1.3), s1: 0.2, c0: 0xffffff, c1: 0xff2840, a0: 1, a1: 0 });
+  if (Math.random() < 0.5) glow.emit(at, new V3(rnd(-2, 2), rnd(2, 5), rnd(-2, 2)), { life: rnd(0.3, 0.6), s0: 0.14, s1: 0.04, c0: 0xffe8e8, c1: 0xff3040, g: -10 });
+  if (Math.random() < 0.55) smoke.emit(at.clone().setY(at.y + 0.3), new V3(rnd(-0.3, 0.3), rnd(1.2, 2.4), rnd(-0.3, 0.3)), { life: rnd(3, 5), s0: 0.5, s1: 4.5, c0: 0xff9aa8, c1: 0x8d7c80, a0: 0.45, a1: 0, drag: 0.5 });
+};
+// The shot: a flash at the muzzle and a puff of smoke.
+export const muzzle = (at, dir) => {
+  for (let k = 0; k < 8; k++) glow.emit(at, dir.clone().multiplyScalar(rnd(3, 9)).add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), { life: rnd(0.05, 0.12), s0: 0.5, s1: 0.1, c0: 0xfff2d0, c1: 0xff5030, a0: 1, a1: 0 });
+  for (let k = 0; k < 5; k++) smoke.emit(at, dir.clone().multiplyScalar(rnd(1, 3)).add(new V3(rnd(-0.4, 0.4), rnd(0, 0.6), rnd(-0.4, 0.4))), { life: rnd(0.8, 1.6), s0: 0.2, s1: 1.2, c0: 0xdddddd, c1: 0x999999, a0: 0.5, a1: 0, drag: 2 });
 };
 
 export const dust = (at, n = 3) => {
