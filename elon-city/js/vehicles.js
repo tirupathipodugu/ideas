@@ -1,5 +1,5 @@
 // Every vehicle in town: the models, driving and flying, crashes, fire, and the traffic that keeps the streets busy.
-import { THREE, V3, scene, G, clamp, lerp, rnd, pick, wrapA, collide, onUpdate, camera, damp, insideSolid, groundAt } from './core.js';
+import { THREE, V3, scene, G, clamp, lerp, rnd, pick, wrapA, collide, onUpdate, camera, damp, insideSolid, groundAt, IS_MOBILE } from './core.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -586,8 +586,8 @@ const driveAI = (v, dt) => {
 };
 
 /* ---------------- streaming traffic around the player ---------------- */
-const TRAFFIC = 20;
-const PARKED = 10;
+const TRAFFIC = IS_MOBILE ? 28 : 42;
+const PARKED = 18;
 const traffic = () => vehicles.filter(v => v.driver === 'ai' && !v.mission);
 const spawnTrafficNear = (p, minR, maxR) => {
   const e = randomEdgeNear(p, minR, maxR, e => e.drive && e.len > 20);
@@ -621,7 +621,7 @@ const parkNear = (p, minR, maxR) => {
 };
 
 // Sky traffic: Teslas flying between points over downtown, each at its own height, climbing over towers.
-const SKY = 16;
+const SKY = IS_MOBILE ? 20 : 32;
 const sky = () => vehicles.filter(v => v.driver === 'sky');
 const skyTarget = (v, p) => {
   const a = rnd(0, Math.PI * 2), d = rnd(250, 600);
@@ -681,10 +681,10 @@ onUpdate(dt => {
     // Wrecks and abandoned cars far away go too.
     for (const v of [...vehicles])
       if ((v.dead || (v.driver === null && !v.mission && !v.keep)) && Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 300) removeVehicle(v);
-    if (traffic().length < TRAFFIC) spawnTrafficNear(p, 140, 300);
-    if (parked().length < PARKED) parkNear(p, 90, 220);
+    for (let k = 0; k < 4 && traffic().length < TRAFFIC; k++) spawnTrafficNear(p, 120, 300);
+    for (let k = 0; k < 2 && parked().length < PARKED; k++) parkNear(p, 80, 220);
     for (const v of sky()) if (Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 450) removeVehicle(v);
-    if (sky().length < SKY) spawnSky(p, 250, 400);
+    for (let k = 0; k < 3 && sky().length < SKY; k++) spawnSky(p, 200, 400);
   }
   for (const v of vehicles) {
     if (v.inLoop) continue;

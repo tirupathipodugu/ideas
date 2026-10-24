@@ -1,5 +1,5 @@
 // People: one low-poly body shared by pedestrians, police and the player; pedestrians walking the sidewalks.
-import { THREE, V3, scene, G, clamp, rnd, pick, wrapA, collide, onUpdate, damp, bus, clearLine } from './core.js';
+import { THREE, V3, scene, camera, G, IS_MOBILE, clamp, rnd, pick, wrapA, collide, onUpdate, damp, bus, clearLine } from './core.js';
 import { isLand, nodes, edges, edgePoint, nearestEdge, randomEdgeNear, walkOffset } from './world.js';
 import { vehicles, fwdVec } from './vehicles.js';
 import { burning, sparks } from './fx.js';
@@ -10,7 +10,7 @@ export { makeHuman, animHuman };
 
 /* ---------------- pedestrians ---------------- */
 export const peds = [];
-const MAX_PEDS = 72;
+const MAX_PEDS = IS_MOBILE ? 64 : 110;
 const MAX_BOTS = 4;
 
 export const spawnPed = (x, z, opts = {}) => {
@@ -277,7 +277,19 @@ const stepPed = (p, dt) => {
 
   p.h.root.position.copy(p.pos);
   p.h.root.rotation.y = p.yaw;
-  animHuman(p.h, speed, dt, pose);
+  // Far away, animate less often (it's a busy city).
+  const d2 = p.pos.distanceToSquared(camera.position), far = d2 > 70 * 70;
+  // Only people near you cast shadows.
+  const shade = d2 < 45 * 45;
+  if (p.h.model && p.shade !== shade) {
+    p.shade = shade;
+    p.h.model.traverse(o => o.isMesh && (o.castShadow = shade));
+  }
+  p.animDt = (p.animDt || 0) + dt;
+  if (!far || (p.frame = (p.frame || 0) + 1) % 3 === 0 || pose === 'down') {
+    animHuman(p.h, speed, p.animDt, pose);
+    p.animDt = 0;
+  }
 };
 
 /* ---------------- streaming pedestrians around the player ---------------- */

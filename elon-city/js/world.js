@@ -303,12 +303,14 @@ export const nearestNode = (x, z) => {
 // A random edge with its middle between min and max metres from p.
 const _mid = {};
 export const randomEdgeNear = (p, min, max, filter = e => e.drive) => {
-  for (let k = 0; k < 40; k++) {
-    const e = edges[Math.floor(Math.random() * edges.length)];
-    if (!filter(e)) continue;
-    edgePoint(e, e.len / 2, _mid);
-    const d = Math.hypot(_mid.x - p.x, _mid.z - p.z);
-    if (d > min && d < max) return e;
+  // Look at a random spot in the ring around p and take the street nearest to it.
+  for (let k = 0; k < 30; k++) {
+    const a = Math.random() * Math.PI * 2, d = min + Math.random() * (max - min);
+    const q = nearestEdge(p.x + Math.cos(a) * d, p.z + Math.sin(a) * d, filter, 1);
+    if (!q) continue;
+    edgePoint(q.e, q.e.len / 2, _mid);
+    const dd = Math.hypot(_mid.x - p.x, _mid.z - p.z);
+    if (dd > min * 0.6 && dd < max * 1.25) return q.e;
   }
   return null;
 };
@@ -1171,7 +1173,7 @@ export const terminals = places.terminals.map(p => {
 
 // Starlink trains: lines of lights crossing the sky.
 {
-  const n = 3 * 40;
+  const n = 7 * 40;
   const pos = new Float32Array(n * 3);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -1180,14 +1182,14 @@ export const terminals = places.terminals.map(p => {
   scene.add(pts);
   onUpdate(dt => {
     const t = G.t;
-    for (let tr = 0; tr < 3; tr++)
+    for (let tr = 0; tr < 7; tr++)
       for (let k = 0; k < 40; k++) {
         const i = (tr * 40 + k) * 3;
         const a = ((t * 0.012 + tr * 2.1 - k * 0.012) % (Math.PI * 2)) - 0.6;
-        const tilt = 0.5 + tr * 0.4;
+        const tilt = 0.35 + tr * 0.22;
         pos[i] = Math.cos(a) * 3400 + camera.position.x;
         pos[i + 1] = Math.sin(a) * 1900 * Math.cos(tilt) + 800;
-        pos[i + 2] = Math.sin(a) * 2800 * Math.sin(tilt) - 500 + tr * 600 + camera.position.z;
+        pos[i + 2] = Math.sin(a) * 2800 * Math.sin(tilt) - 900 + tr * 330 + camera.position.z;
       }
     geo.attributes.position.needsUpdate = true;
     sky.position.copy(camera.position);
