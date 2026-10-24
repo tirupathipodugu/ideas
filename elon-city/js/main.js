@@ -55,6 +55,12 @@ const begin = fresh => {
   bus.weapon();
   look.yaw = places.spawnYaw;
   player.yaw = places.spawnYaw;
+  try {
+    if (localStorage.getItem('elon-city-night') === '1') {
+      G.setNight(true);
+      $('nightBtn').textContent = '☀️';
+    }
+  } catch {}
   look.pitch = 0.22;
   bus.big('GTA <s>Vice</s> Elon City', G.done.length ? `Welcome back. Story ${storyProgress()} · $${G.money.toLocaleString()}` : 'Walk into the yellow marker for your first job. Green, blue and pink markers are side jobs.', '#ff4fa3', 5);
   if (!IS_MOBILE) canvas.requestPointerLock?.();
@@ -117,6 +123,12 @@ $('soundBtn').addEventListener('click', e => {
 $('radioBtn').addEventListener('click', e => (e.currentTarget.textContent = 'Radio: ' + nextStation()));
 $('menuBtn').addEventListener('click', () => pause(true));
 $('mapBtn').addEventListener('click', () => toggleMap());
+const toggleNight = () => {
+  G.setNight(!G.night);
+  $('nightBtn').textContent = G.night ? '☀️' : '🌙';
+  bus.toast(G.night ? 'Night in Austin' : 'Back to sunset');
+};
+$('nightBtn').addEventListener('click', toggleNight);
 $('jobBtn').addEventListener('click', () => jobNow());
 $('bigmap').addEventListener('click', e => {
   if (e.target.id === 'bigmap') {
@@ -150,6 +162,7 @@ const frame = now => {
   if (G.started) {
     if (hit('Escape') || hit('KeyP')) pause(!G.paused);
     if (hit('KeyM')) toggleMap();
+    if (hit('KeyN')) toggleNight();
     if (hit('KeyJ')) jobNow();
   }
   if (!G.paused) {

@@ -254,12 +254,57 @@ export const spawnVehicle = (type, x, z, yaw = 0, opts = {}) => {
   };
   if (base === 'cybertruck' && v.color == null) v.color = null;
   if (spec.lightbar) addLightbar(v);
+  addBeam(v);
   if (spec.canFly) addJets(v);
   if (templates[base]) attachModel(v);
   root.position.copy(v.pos);
   root.rotation.y = yaw;
   vehicles.push(v);
   return v;
+};
+
+// Headlight beams on the road, shown at night.
+const beamTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const lg = g.createLinearGradient(0, 256, 0, 0);
+  lg.addColorStop(0, 'rgba(255,245,220,0.75)');
+  lg.addColorStop(1, 'rgba(255,245,220,0)');
+  g.fillStyle = lg;
+  g.fillRect(0, 0, 64, 256);
+  const side = g.createLinearGradient(0, 0, 64, 0);
+  side.addColorStop(0, 'rgba(0,0,0,1)');
+  side.addColorStop(0.3, 'rgba(0,0,0,0)');
+  side.addColorStop(0.7, 'rgba(0,0,0,0)');
+  side.addColorStop(1, 'rgba(0,0,0,1)');
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = side;
+  g.fillRect(0, 0, 64, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+export const beamMat = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -32 });
+beamMat.visible = false;
+const beamGeo = new THREE.PlaneGeometry(3.4, 14);
+beamGeo.rotateX(-Math.PI / 2);
+const addBeam = v => {
+  const m = new THREE.Mesh(beamGeo, beamMat);
+  m.position.set(0, 0.06, v.spec.len / 2 + 7);
+  m.renderOrder = 2;
+  v.root.add(m);
+};
+
+// Crashes are heard only nearby, quieter with distance, and never back to back, unless it's you.
+let lastCrash = -9;
+const crashSound = (at, k, mine) => {
+  const d = at.distanceTo(camera.position);
+  if (!mine && (d > 55 || G.t - lastCrash < 1.5)) return;
+  if (mine && G.t - lastCrash < 0.35) return;
+  lastCrash = G.t;
+  sfx.crash(k * (mine ? 1 : 0.6 * (1 - d / 55)));
 };
 
 const addLightbar = v => {
@@ -374,7 +419,7 @@ const physics = (v, dt) => {
     if (v.pos.y <= floor) {
       if (v.vy < -14) {
         hurtVehicle(v, (-v.vy - 14) * 3);
-        sfx.crash(1);
+        crashSound(v.pos, 1, v.driver === 'player');
         addShake(0.5);
         dust(v.pos, 10);
       }
@@ -412,7 +457,7 @@ const physics = (v, dt) => {
         const impact = -vn;
         if (impact > 6) {
           hurtVehicle(v, impact * 0.9);
-          sfx.crash(clamp(impact / 25, 0.3, 1.4));
+          crashSound(v.pos, clamp(impact / 25, 0.3, 1.4), v.driver === 'player');
           sparks(v.pos.clone().setY(v.pos.y + 0.8), Math.floor(impact));
           if (v.driver === 'player') addShake(clamp(impact / 30, 0.1, 1));
         }
@@ -471,7 +516,7 @@ const bump = dt => {
       if (impact > 5) {
         hurtVehicle(a, impact * 0.7 * (mb / ma), b.driver === 'player' ? 'player' : null);
         hurtVehicle(b, impact * 0.7 * (ma / mb), a.driver === 'player' ? 'player' : null);
-        sfx.crash(clamp(impact / 20, 0.3, 1.3));
+        crashSound(a.pos, clamp(impact / 20, 0.3, 1.3), a.driver === 'player' || b.driver === 'player');
         sparks(a.pos.clone().lerp(b.pos, 0.5).setY(0.8), 10);
         if (a.driver === 'player' || b.driver === 'player') {
           addShake(clamp(impact / 25, 0.1, 0.9));

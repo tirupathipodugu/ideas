@@ -1,7 +1,7 @@
 // Elon City is downtown Austin, Texas: real streets, buildings, Lady Bird Lake and parks from OpenStreetMap
 // (© OpenStreetMap contributors, ODbL), plus Elon's places dropped onto open ground: the Gigafactory,
 // The Boring Company and its Loop stations, Starlink, Tesla Service, ElonPD, Rival Motors and Starbase.
-import { THREE, V3, scene, renderer, camera, G, canvasTex, solids, posts, rnd, pick, clamp, onUpdate, addPoly, inPoly } from './core.js';
+import { THREE, V3, scene, renderer, camera, bloom, G, canvasTex, solids, posts, rnd, pick, clamp, onUpdate, addPoly, inPoly } from './core.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
@@ -80,19 +80,23 @@ export const skyReady = new RGBELoader().loadAsync('assets/sky.hdr').then(tex =>
   sunDir.set(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
   if (sunDir.y < 0.1) sunDir.y = 0.1;
   sunDir.normalize();
-  scene.background = tex;
-  scene.backgroundIntensity = 0.7;
-  scene.backgroundBlurriness = 0.0;
   const pm = new THREE.PMREMGenerator(renderer);
-  scene.environment = pm.fromEquirectangular(tex).texture;
+  G.dayBg = tex;
+  G.dayEnv = pm.fromEquirectangular(tex).texture;
   pm.dispose();
+  if (!G.night) {
+    scene.background = tex;
+    scene.environment = G.dayEnv;
+  }
+  scene.backgroundIntensity = G.night ? 1 : 0.7;
+  scene.backgroundBlurriness = 0.0;
   sky.visible = false;
 }).catch(err => console.warn('sky', err));
 {
   const pm = new THREE.PMREMGenerator(renderer);
   const es = new THREE.Scene();
   es.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), skyMat));
-  scene.environment = pm.fromScene(es, 0.02).texture;
+  scene.environment = G.dayEnv = pm.fromScene(es, 0.02).texture;
   pm.dispose();
 }
 
@@ -157,7 +161,11 @@ const flat = (rings, y, scale) => {
   const out = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), grassMat);
   for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) grassMat[k].repeat.set(9000 / 8, 9000 / 8);
   out.rotation.x = -Math.PI / 2;
-  out.position.y = -0.05;
+  // Well below the pavement, and pushed back in depth, so far away it never shows through.
+  out.position.y = -0.6;
+  grassMat.polygonOffset = true;
+  grassMat.polygonOffsetFactor = 4;
+  grassMat.polygonOffsetUnits = 16;
   out.receiveShadow = true;
   scene.add(out);
   const W = EXT.xmax - EXT.xmin + 60, D = EXT.zmax - EXT.zmin + 60;
@@ -469,11 +477,13 @@ const asphaltMat = layer(pbr('asphalt', 1, { roughness: 1, envMapIntensity: 0.7 
 // Styles: 0 limestone (punched windows), 1 glass curtain wall, 2 modern ribbon windows, 3 brick.
 const wallMat = pbr('plaster', 1, { vertexColors: true, roughness: 1, envMapIntensity: 1 });
 wallMat.onBeforeCompile = sh => {
+  sh.uniforms.uNight = nightU;
   sh.vertexShader = sh.vertexShader
     .replace('#include <common>', '#include <common>\nattribute vec3 wuv;\nattribute vec4 wall;\nvarying vec3 vW;\nvarying vec4 vWall;')
     .replace('#include <uv_vertex>', '#include <uv_vertex>\nvW = wuv;\nvWall = wall;');
   sh.fragmentShader = sh.fragmentShader
     .replace('#include <common>', `#include <common>
+      uniform float uNight;
       varying vec3 vW;
       varying vec4 vWall;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -483,7 +493,7 @@ wallMat.onBeforeCompile = sh => {
       // x: glass, y: light trim (frames, sills, cornices), z: random per pane, w: dark (recess, mortar)
       vec4 facade(vec3 w, vec4 wl, float fx, float fy){
         if (w.z < -0.5) return vec4(0.0);
-        float style = w.z, L = wl.x, bays = wl.y, seed = wl.z, top = wl.w;
+        float style = floor(w.z + 0.5), L = wl.x, bays = floor(wl.y + 0.5), seed = floor(wl.z + 0.5), top = wl.w;
         float x = w.x, y = w.y;
         float glassy = step(0.5, style) * step(style, 1.5);
         float pier = glassy > 0.5 ? 0.0 : min(1.2, 0.2 * L);
@@ -568,7 +578,9 @@ wallMat.onBeforeCompile = sh => {
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       normal = normalize(mix(normal, normalize(vNormal), max(glassK, fac.y)));`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      //EMISSIVE_OFF totalEmissiveRadiance += glassK * step(0.93, fac.z) * vec3(1.0, 0.74, 0.44) * 0.3;`);
+      // At night about half the rooms are lit, warm or cool, and the shops glow.
+      vec3 room = mix(vec3(1.0, 0.72, 0.4), vec3(0.8, 0.88, 1.0), step(0.86, fac.z));
+      totalEmissiveRadiance += uNight * glassK * (vW.y < 4.5 ? vec3(1.0, 0.82, 0.55) * 1.2 : room * step(0.5, fac.z) * 1.3);`);
 };
 
 // Austin colours: limestone and cream below, red and tan brick on the older blocks, blue-green glass up high.
@@ -1145,6 +1157,7 @@ scene.add(starship);
       if (!inWater(x, z) || e.bridge) spots.push([x, z]);
     }
   }
+  places.lampSpots = spots;
   const poles = new THREE.InstancedMesh(pole, plain(0x3a3a44, { metalness: 0.6 }), spots.length);
   const heads = new THREE.InstancedMesh(head, new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd9a0).multiplyScalar(2), toneMapped: false }), spots.length);
   const m = new THREE.Matrix4();
@@ -1171,27 +1184,271 @@ export const terminals = places.terminals.map(p => {
   return g;
 });
 
-// Starlink trains: lines of lights crossing the sky.
+const skyLaneT = { value: 0 };
+// Starlink: thousands of satellites in orbital shells sweeping across the sky, plus fresh "trains"
+// of 60 in a line after a launch. All the motion is in the shader, so it costs nothing on the CPU.
+export const nightU = { value: 0 };
 {
-  const n = 7 * 40;
-  const pos = new Float32Array(n * 3);
+  const SHELLS = 72, PER = 56, TRAINS = 10, TRAIN = 60;
+  const n = SHELLS * PER + TRAINS * TRAIN;
+  const inc = new Float32Array(n), node = new Float32Array(n), phase = new Float32Array(n), speed = new Float32Array(n), glint = new Float32Array(n);
+  let i = 0;
+  for (let s = 0; s < SHELLS; s++) {
+    const a = srnd(0.6, 1.45), b = (s / SHELLS) * Math.PI * 2, v = srnd(0.012, 0.02);
+    for (let k = 0; k < PER; k++, i++) {
+      inc[i] = a;
+      node[i] = b;
+      phase[i] = (k / PER) * Math.PI * 2 + srnd(0, 0.05);
+      speed[i] = v;
+      glint[i] = srnd(0, 1);
+    }
+  }
+  for (let t = 0; t < TRAINS; t++) {
+    const a = srnd(0.7, 1.3), b = srnd(0, Math.PI * 2), p0 = srnd(0, Math.PI * 2), v = srnd(0.016, 0.022);
+    for (let k = 0; k < TRAIN; k++, i++) {
+      inc[i] = a;
+      node[i] = b;
+      phase[i] = p0 - k * 0.006;
+      speed[i] = v;
+      glint[i] = 2 + srnd(0, 1);
+    }
+  }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.9 }));
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  geo.setAttribute('inc', new THREE.BufferAttribute(inc, 1));
+  geo.setAttribute('node', new THREE.BufferAttribute(node, 1));
+  geo.setAttribute('phase', new THREE.BufferAttribute(phase, 1));
+  geo.setAttribute('speed', new THREE.BufferAttribute(speed, 1));
+  geo.setAttribute('glint', new THREE.BufferAttribute(glint, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uT: { value: 0 }, uCam: { value: new V3() }, uNight: nightU, uPx: { value: 1 } },
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `attribute float inc; attribute float node; attribute float phase; attribute float speed; attribute float glint;
+      uniform float uT; uniform vec3 uCam; uniform float uNight; uniform float uPx;
+      varying float vA;
+      void main(){
+        float m = phase + uT * speed;
+        // A circular orbit tilted by inc, turned by node, seen on a dome round the camera.
+        vec3 p = vec3(cos(m), 0.0, sin(m));
+        p = vec3(p.x, p.z * sin(inc), p.z * cos(inc));
+        float cn = cos(node), sn = sin(node);
+        p = vec3(p.x * cn - p.z * sn, p.y, p.x * sn + p.z * cn);
+        float up = p.y;
+        vec3 w = uCam + vec3(p.x * 3600.0, p.y * 2600.0 + 120.0, p.z * 3600.0);
+        // Below the horizon: hidden. Sunlit ones catch the light now and then.
+        float train = step(1.5, glint);
+        float flick = 0.55 + 0.45 * sin(uT * (0.6 + fract(glint * 7.0) * 1.4) + glint * 40.0);
+        vA = smoothstep(0.02, 0.12, up) * mix(0.35, 1.0, uNight) * mix(flick, 1.0, train);
+        gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
+        gl_PointSize = (train > 0.5 ? 1.8 : 1.1 + flick * 0.6) * uPx;
+      }`,
+    fragmentShader: `varying float vA;
+      void main(){
+        float d = length(gl_PointCoord - 0.5);
+        float a = smoothstep(0.5, 0.0, d) * vA;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * 0.8, a);
+      }`,
+  });
+  const pts = new THREE.Points(geo, mat);
   pts.frustumCulled = false;
+  pts.renderOrder = -1;
   scene.add(pts);
-  onUpdate(dt => {
-    const t = G.t;
-    for (let tr = 0; tr < 7; tr++)
-      for (let k = 0; k < 40; k++) {
-        const i = (tr * 40 + k) * 3;
-        const a = ((t * 0.012 + tr * 2.1 - k * 0.012) % (Math.PI * 2)) - 0.6;
-        const tilt = 0.35 + tr * 0.22;
-        pos[i] = Math.cos(a) * 3400 + camera.position.x;
-        pos[i + 1] = Math.sin(a) * 1900 * Math.cos(tilt) + 800;
-        pos[i + 2] = Math.sin(a) * 2800 * Math.sin(tilt) - 900 + tr * 330 + camera.position.z;
-      }
-    geo.attributes.position.needsUpdate = true;
+  onUpdate(() => {
+    mat.uniforms.uT.value = G.t;
+    mat.uniforms.uCam.value.copy(camera.position);
+    mat.uniforms.uPx.value = renderer.getPixelRatio();
     sky.position.copy(camera.position);
   }, 90);
+}
+
+/* ---------------- night ---------------- */
+// A painted night sky: deep blue overhead, the city's orange glow at the horizon, and stars.
+const nightSky = (() => {
+  const W = 2048, H = 1024;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#020510');
+  grad.addColorStop(0.3, '#040a1f');
+  grad.addColorStop(0.42, '#0b1634');
+  grad.addColorStop(0.48, '#1d2448');
+  grad.addColorStop(0.5, '#3a2f45');
+  grad.addColorStop(0.515, '#0b0d16');
+  grad.addColorStop(1, '#050608');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+  // Small, sharp stars, more of them overhead.
+  for (let k = 0; k < 3200; k++) {
+    const y = Math.pow(Math.random(), 1.3) * H * 0.47;
+    const r = Math.random() < 0.04 ? 0.9 : Math.random() * 0.35 + 0.25;
+    g.fillStyle = `rgba(255,255,255,${(0.3 + Math.random() * 0.7) * (1 - y / (H * 0.5)) + 0.1})`;
+    g.beginPath();
+    g.arc(Math.random() * W, y, r, 0, 7);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+let nightEnv = null;
+// Light pools under the street lamps, and car headlight beams on the road: only seen at night.
+const poolTex = canvasTex(128, 128, (g, w, h) => {
+  const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  r.addColorStop(0, 'rgba(255,214,150,0.9)');
+  r.addColorStop(0.45, 'rgba(255,190,120,0.35)');
+  r.addColorStop(1, 'rgba(255,170,90,0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, w, h);
+});
+export const lampPoolMat = new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -24 });
+lampPoolMat.visible = false;
+G.night = false;
+G.setNight = on => {
+  G.night = on;
+  if (on && !nightEnv) {
+    const pm = new THREE.PMREMGenerator(renderer);
+    nightEnv = pm.fromEquirectangular(nightSky).texture;
+    pm.dispose();
+  }
+  scene.background = on ? nightSky : G.dayBg || null;
+  scene.backgroundIntensity = on ? 1 : 0.7;
+  scene.environment = on ? nightEnv : G.dayEnv;
+  sun.intensity = on ? 0.32 : 1.9;
+  sun.color.setHex(on ? 0x9fb4ff : 0xffdcc0);
+  hemi.intensity = on ? 0.55 : 0.25;
+  hemi.color.setHex(on ? 0x3a4a80 : 0xbfd4ff);
+  hemi.groundColor.setHex(on ? 0x2a2018 : 0x4a4038);
+  scene.fog.color.setHex(on ? 0x0b1020 : 0xc9a48e);
+  nightU.value = on ? 1 : 0;
+  lampPoolMat.visible = on;
+  renderer.toneMappingExposure = on ? 1.05 : 0.75;
+  bloom.strength = on ? 0.55 : 0.2;
+  bloom.threshold = on ? 0.85 : 1.3;
+  try {
+    localStorage.setItem('elon-city-night', on ? '1' : '0');
+  } catch {}
+  G.onNight?.(on);
+};
+
+// Pools of lamplight on the pavement under every street lamp (night only).
+{
+  const spots = places.lampSpots || [];
+  const g = new THREE.PlaneGeometry(14, 14);
+  g.rotateX(-Math.PI / 2);
+  const im = new THREE.InstancedMesh(g, lampPoolMat, spots.length);
+  const m = new THREE.Matrix4();
+  spots.forEach(([x, z], k) => im.setMatrixAt(k, m.makeTranslation(x, 0.06, z)));
+  im.frustumCulled = false;
+  scene.add(im);
+}
+
+// Sky highways: thousands of flying cars in lanes stacked above the city, lined up with Austin's street grid.
+// Each is a light low-poly car with head- and tail-lights; the shader moves them, so they cost almost nothing.
+{
+  // Which way does the downtown grid run? The longest streets vote.
+  const votes = new Float32Array(90);
+  for (const e of edges) {
+    if (e.c === 'service') continue;
+    const p = e.p;
+    const a = ((Math.atan2(p[p.length - 2] - p[0], p[p.length - 1] - p[1]) * 180) / Math.PI + 360) % 90;
+    votes[Math.floor(a)] += e.len;
+  }
+  const gridA = (votes.indexOf(Math.max(...votes)) * Math.PI) / 180;
+  const LANES = 160, PER = 24, n = LANES * PER;
+  const lane = new Float32Array(n * 4), alt = new Float32Array(n * 2), col = new Float32Array(n * 3);
+  const PAINT = [0xf4f4f4, 0x15171c, 0xc8102e, 0xb9bec6, 0xffc935, 0x1f5fd1, 0xf4f4f4, 0x9aa1aa];
+  const c = new THREE.Color();
+  let i = 0;
+  for (let l = 0; l < LANES; l++) {
+    const cross = l % 2, a = gridA + (cross ? Math.PI / 2 : 0) + (l % 4 >= 2 ? Math.PI : 0);
+    const off = srnd(-1000, 1000), h = 120 + Math.floor(srnd(0, 13)) * 34;
+    const sp = srnd(26, 46);
+    // Lane origin: the city centre, shifted sideways.
+    const ox = Math.cos(a) * off, oz = -Math.sin(a) * off;
+    for (let k = 0; k < PER; k++, i++) {
+      lane.set([ox, oz, a, sp], i * 4);
+      alt.set([h + srnd(-3, 3), (k / PER) * 3600 + srnd(0, 90)], i * 2);
+      c.setHex(spick(PAINT)).toArray(col, i * 3);
+    }
+  }
+  const motion = sh => {
+    sh.uniforms.uT = skyLaneT;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 lane;\nattribute vec2 alt;\nuniform float uT;')
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        { float ca = cos(lane.z), sa = sin(lane.z); objectNormal = vec3(objectNormal.x * ca + objectNormal.z * sa, objectNormal.y, -objectNormal.x * sa + objectNormal.z * ca); }`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          float ca = cos(lane.z), sa = sin(lane.z);
+          float along = mod(alt.y + uT * lane.w, 3600.0) - 1800.0;
+          vec3 at = vec3(lane.x + sa * along, alt.x + sin(uT * 0.7 + alt.y) * 1.2, lane.y + ca * along);
+          transformed = vec3(transformed.x * ca + transformed.z * sa, transformed.y, -transformed.x * sa + transformed.z * ca) + at;
+        }`);
+  };
+  // A simple Tesla-ish shape: low body, sloped glass cabin, wheels tucked up for flight.
+  const body = mergeGeometries([
+    new THREE.BoxGeometry(2, 0.7, 4.6).translate(0, 0.55, 0),
+    new THREE.BoxGeometry(1.7, 0.55, 2.2).translate(0, 1.15, -0.3),
+  ].map(g => g.toNonIndexed()));
+  const lights = mergeGeometries([
+    new THREE.BoxGeometry(1.9, 0.3, 0.08).translate(0, 0.72, 2.32),
+    new THREE.BoxGeometry(2.0, 0.28, 0.08).translate(0, 0.78, -2.32),
+  ].map(g => g.toNonIndexed()));
+  // Colour the light bar: white at the front, red at the back.
+  {
+    const p = lights.getAttribute('position'), lc = new Float32Array(p.count * 3);
+    for (let k = 0; k < p.count; k++) (p.getZ(k) > 0 ? new THREE.Color(3, 3, 3.2) : new THREE.Color(3.2, 0.2, 0.15)).toArray(lc, k * 3);
+    lights.setAttribute('color', new THREE.BufferAttribute(lc, 3));
+  }
+  const bodyMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.6 });
+  bodyMat.onBeforeCompile = motion;
+  const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  lightMat.onBeforeCompile = motion;
+  for (const [geo, mat] of [[body, bodyMat], [lights, lightMat]]) {
+    geo.setAttribute('lane', new THREE.InstancedBufferAttribute(lane, 4));
+    geo.setAttribute('alt', new THREE.InstancedBufferAttribute(alt, 2));
+    const im = new THREE.InstancedMesh(geo, mat, n);
+    if (mat === bodyMat) for (let k = 0; k < n; k++) im.setColorAt(k, c.fromArray(col, k * 3));
+    im.frustumCulled = false;
+    scene.add(im);
+  }
+  // At night each one is a moving light: white coming, red going.
+  {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('lane', new THREE.BufferAttribute(lane, 4));
+    g.setAttribute('alt', new THREE.BufferAttribute(alt, 2));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uT: skyLaneT, uNight: nightU, uPx: { value: 1 } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `attribute vec4 lane; attribute vec2 alt; uniform float uT; uniform float uNight; uniform float uPx; varying vec3 vC;
+        void main(){
+          float ca = cos(lane.z), sa = sin(lane.z);
+          float along = mod(alt.y + uT * lane.w, 3600.0) - 1800.0;
+          vec3 at = vec3(lane.x + sa * along, alt.x + 0.8 + sin(uT * 0.7 + alt.y) * 1.2, lane.y + ca * along);
+          vec4 mv = viewMatrix * vec4(at, 1.0);
+          // Heading towards the camera: headlights; away: tail-lights.
+          vec3 toCam = normalize(cameraPosition - at);
+          vC = dot(vec3(sa, 0.0, ca), toCam) > 0.0 ? vec3(1.0, 0.95, 0.85) : vec3(1.0, 0.15, 0.1);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = uNight * clamp(900.0 / -mv.z, 1.6, 6.0) * uPx;
+        }`,
+      fragmentShader: `varying vec3 vC;
+        void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.1, d); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.4, a); }`,
+    });
+    const pts = new THREE.Points(g, m);
+    pts.frustumCulled = false;
+    scene.add(pts);
+    onUpdate(() => (m.uniforms.uPx.value = renderer.getPixelRatio()), 88);
+  }
+  onUpdate(() => (skyLaneT.value = G.t), 89);
 }
