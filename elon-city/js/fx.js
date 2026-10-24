@@ -3,7 +3,7 @@ import { THREE, V3, scene, rnd, onUpdate, G } from './core.js';
 
 const VERT = `attribute float size; attribute vec4 col; varying vec4 vC;
   void main(){ vC = col; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * (420.0 / -mv.z); gl_Position = projectionMatrix * mv; }`;
-const FRAG = `varying vec4 vC; void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = vec4(vC.rgb, vC.a * smoothstep(0.5, 0.0, d)); }`;
+const FRAG = `varying vec4 vC; void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = vec4(vC.rgb, vC.a * (1.0 - smoothstep(0.0, 0.5, d))); }`;
 
 // A pool of point sprites; each particle fades from one colour and size to another.
 const pool = (max, additive) => {

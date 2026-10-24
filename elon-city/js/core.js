@@ -44,10 +44,13 @@ export const grade = new ShaderPass({
   fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
-      c = mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, 1.12);
-      c = (c - 0.5) * 1.06 + 0.5;
+      // Saturation as plain arithmetic: mix() with a weight above 1 turned the deep-blue night sky into a
+      // jagged black band on some GPUs (Windows/ANGLE).
+      float l = dot(c, vec3(0.299, 0.587, 0.114));
+      c = max(vec3(l) + (c - vec3(l)) * 1.12, 0.0);
+      c = max((c - 0.5) * 1.06 + 0.5, 0.0);
       c *= vec3(1.03, 1.0, 0.97);
-      float v = smoothstep(0.95, 0.35, length(vUv - 0.5));
+      float v = (1.0 - smoothstep(0.35, 0.95, length(vUv - 0.5)));
       gl_FragColor = vec4(c * mix(0.78, 1.0, v), 1.0);
     }`,
 });

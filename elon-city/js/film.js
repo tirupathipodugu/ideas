@@ -2,6 +2,9 @@
 // Activated by ?film=1 (plus &auto=1 to render). Takes over the camera and stages hero beats of
 // every feature, renders frames at a fixed timestep, and POSTs JPEGs to the save-server (:8794).
 // Encode with film/_tools/encode.sh. Nothing here runs unless ?film is present.
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { grade } from './core.js';
 import { THREE, V3, scene, camera, G, renderer, composer, bloom, runUpdaters, groundAt, clamp, lerp, $, canvas, bus, solids, look } from './core.js';
 import { places, starbase, starship, sun, followSun, nightU, nodes, edges, edgePoint, laneOffset, walkOffset } from './world.js';
 import { player, playerBody, fireFlare } from './player.js';
@@ -28,10 +31,63 @@ const easeIO = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const easeOut = x => { x = clamp(x, 0, 1); return 1 - (1 - x) * (1 - x); };
 const setCam = (p, t, fov = 45) => { cam.p.copy(p); cam.t.copy(t); cam.fov = fov; };
 const dolly = (k, p0, p1, t0, t1, f0, f1 = f0) => setCam(mix3(p0, p1, k), mix3(t0, t1, k), lerp(f0, f1, k));
+const _fwd = new V3();
 function applyCam() {
   camera.position.copy(cam.p);
   camera.lookAt(cam.t);
   if (Math.abs(camera.fov - cam.fov) > 1e-6) { camera.fov = cam.fov; camera.updateProjectionMatrix(); }
+  // The film's shadow box sits on what the camera is looking at, not on the player.
+  if (hq.on) { _fwd.copy(cam.t).sub(cam.p).setY(0); const d = Math.min(hq.box * 0.6, _fwd.length()); _fwd.normalize().multiplyScalar(d).add(cam.p); followSun(_fwd); }
+}
+// ---- film-quality rendering: skyline-wide shadows, ambient occlusion, supersampling, a film grade ----
+const hq = { on: false, box: 420, ss: 1.5, ao: null, grade: null };
+function enableHQ() {
+  if (hq.on) return; hq.on = true;
+  hq.ss = +Q.get('ss') || 1.5;
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.map?.dispose(); sun.shadow.map = null;
+  Object.assign(sun.shadow.camera, { left: -hq.box, right: hq.box, top: hq.box, bottom: -hq.box, near: 10, far: 2400 });
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.6;
+  const ao = hq.ao = new GTAOPass(scene, camera, 16, 16);
+  ao.updateGtaoMaterial({ radius: 6, distanceExponent: 1.4, thickness: 3, scale: 1.25, samples: 16, distanceFallOff: 1 });
+  ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
+  ao.blendIntensity = 0.9;
+  // Shader-animated crowds (sky cars, drones, satellites, particles) would draw at the origin in the AO's
+  // own normal/depth pass, so they sit that pass out.
+  const aoRender = ao.render.bind(ao);
+  ao.render = (...a) => {
+    const off = [];
+    scene.traverse(o => { if (o.visible && (o.isPoints || (o.isInstancedMesh && o.frustumCulled === false) || o.isSprite || (o.material && o.material.blending === THREE.AdditiveBlending))) { off.push(o); o.visible = false; } });
+    const sb = scene.background; scene.background = null;
+    aoRender(...a);
+    scene.background = sb;
+    for (const o of off) o.visible = true;
+  };
+  composer.insertPass(ao, 1);
+  hq.grade = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uNight: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uT; uniform float uNight; varying vec2 vUv;
+      float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      void main(){
+        vec3 c = texture2D(tDiffuse, vUv).rgb;
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        // Teal shadows, warm highlights; a gentle S-curve.
+        vec3 sh = mix(vec3(0.86, 0.97, 1.06), vec3(0.9, 0.95, 1.12), uNight), hi = vec3(1.07, 1.0, 0.9);
+        c *= mix(sh, hi, smoothstep(0.15, 0.75, l));
+        c = mix(c, c * c * (3.0 - 2.0 * c), 0.3 * (1.0 - uNight));
+        // Lift the blacks a touch so the night sky stays deep blue instead of crushing to black.
+        c = c * 0.97 + vec3(0.012, 0.016, 0.03) * (0.4 + 0.6 * uNight);
+        c = max(c, 0.0);
+        float v = (1.0 - smoothstep(0.3, 1.05, length((vUv - 0.5) * vec2(1.25, 1.0))));
+        c *= mix(0.7, 1.0, v);
+        c += (h(vUv * 1931.0 + uT) - 0.5) * 0.035;
+        gl_FragColor = vec4(max(c, 0.0), 1.0);
+      }`,
+  });
+  composer.addPass(hq.grade);
+  grade.enabled = false;   // the film grade replaces the game's (two stacked contrast curves crushed the night sky)
 }
 
 // ---- staged actors (spawned fresh each reset) ----
@@ -97,253 +153,181 @@ const camS = { on: false };
 
 // Night as a film look: a touch darker than the game, so lit windows read as windows, not white boxes.
 const nightLook = () => { renderer.toneMappingExposure = 0.6; bloom.strength = 0.45; bloom.threshold = 1.0; };
+// The trailer: cut on the bar of "Vice Police" (100 BPM, so a bar is 2.4 s). River at sunset, through the
+// towers, down into the Loop, then night and Starlink, then the title.
+const BAR = 2.4;
+// The run through downtown: north off the river, threading the gaps between the towers, then up into the sky.
+const TOWERS = new THREE.CatmullRomCurve3([
+  V(-70, 14, 600), V(-40, 40, 470), V(-5, 56, 400), V(40, 62, 320), V(48, 64, 230), V(42, 66, 150),
+  V(30, 70, 60), V(12, 74, -30), V(6, 84, -120), V(30, 140, -260),
+], false, 'centripetal');
+const _tan = new V3();
+const along = (curve, u) => { const p = curve.getPointAt(clamp(u, 0, 1)); curve.getTangentAt(clamp(u, 0, 1), _tan); return { p, yaw: Math.atan2(_tan.x, _tan.z), pitch: -Math.asin(clamp(_tan.y, -1, 1)), t: _tan.clone() }; };
+// Cars that fly the same path in a loose convoy.
+const convoy = (list, curve, u, gap, bob, t) => list.forEach((c, i) => {
+  const a = along(curve, u - i * gap), r = V(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+  const p = a.p.clone().addScaledVector(r, c.side).add(V(0, c.up + Math.sin(t * 1.6 + i * 1.3) * bob, 0));
+  placeCar(c.v, p, a.yaw, { flying: true, pitch: a.pitch * 0.6 - 0.03, roll: clamp(-a.t.x * 0.0, -0.4, 0.4) + 0.05 * Math.sin(t * 1.3 + i) });
+});
+let fleet = [];
+const makeFleet = () => {
+  fleet = [['roadster', 0xc8101e, 0, 0], ['cybertruck', 0xb9bec6, 4.5, 1.2], ['modely', 0xf4f4f4, -5, 2.0], ['roadster', 0x15171c, 1, 3.5]]
+    .map(([k, c, side, up]) => ({ v: car(k, RIV.a.x, RIV.a.z, 0, { color: c }), side, up }));
+};
+const sparkle = Points => Points;   // (kept for symmetry)
+const starPx = () => { for (const o of scene.children) if (o.isPoints && o.material?.uniforms?.uCam) o.material.uniforms.uPx.value = 3.2; };   // Starlink only
+
 const shots = [
-  // 1) AUSTIN — crane up over Starbase, Starship on the pad, the real Austin skyline behind.
-  { name: 'establish', dur: 5.0, cap: 'Austin, Texas', sub: 'Real streets · 2,476 real buildings', enter() { stageStarship(10, 0); setAmbient(false); },
-    update(t) { const k = easeIO(t / 5), pad = P.pad;
-      dolly(k, V(pad.x + 120, 8, pad.z + 150), V(pad.x + 60, 95, pad.z + 95),
-               V(pad.x, 55, pad.z), V(pad.x, 70, pad.z), 50, 40); } },
-
-  // 2) OPTIMUS — street level on Congress Avenue, robots in a dozen shell colours on the sidewalks.
-  { name: 'crowd', dur: 6.0, cap: 'Optimus robots on every sidewalk',
-    enter() { setAmbient(true); edgePoint(CONG, CONG.len / 2, _ep); warm(_ep.x, _ep.z, 4); crowd(CONG, 44); for (let i = 0; i < 30; i++) { G.t += 1 / 30; runUpdaters(1 / 30); } },
+  // 1) Dawn on the water: skim Lady Bird Lake into the sun, the skyline sliding in on the left.
+  { name: 'open', dur: BAR * 2, cap: 'Austin, Texas', sub: 'GTA Elon City',
+    enter() { setAmbient(false); makeFleet(); for (const c of fleet) c.v.root.visible = false; },
     update(t) {
-      const side = walkOffset(CONG) - 0.6;
-      edgePoint(CONG, 18 + t * 2.2, _ep); const a = V(_ep.x + _ep.dz * side, 1.55, _ep.z - _ep.dx * side);
-      edgePoint(CONG, 40 + t * 2.2, _ep); const b = V(_ep.x + _ep.dz * (side + 1.5), 1.6, _ep.z - _ep.dx * (side + 1.5));
-      setCam(a, b, 46);
+      const k = t / (BAR * 2), f = RIV.f, r = RIV.r;
+      const p = mix3(RIV.a, RIV.b, 0.12 + k * 0.16).addScaledVector(r, -30).setY(lerp(1.6, 4.5, easeIO(k)));
+      setCam(p, p.clone().addScaledVector(f, 100).addScaledVector(r, 18).setY(lerp(4, 14, k)), lerp(50, 44, k));
     } },
-
-  // 3) ROBOTAXI — a yellow Robotaxi cruising Congress, camera tracking alongside.
-  { name: 'robotaxi', dur: 6.0, cap: 'Hail a Robotaxi', sub: 'No driver. Hop in, it takes you anywhere',
-    enter() {
-      taxi = car('cybercab', 0, 0, 0);
-      // Clear anything parked or stopped in the Robotaxi's lane.
-      const lo = laneOffset(CONG);
-      for (const v of [...vehicles]) { if (stage.includes(v)) continue;
-        for (let s = 0; s < CONG.len; s += 4) { const h = roadPoint(CONG, s); const q = h.p.clone().add(V(Math.cos(h.yaw) * lo, 0, -Math.sin(h.yaw) * lo)); if (Math.hypot(v.pos.x - q.x, v.pos.z - q.z) < 7) { removeVehicle(v); break; } } }
-    },
-    update(t, dt) {
-      const s = 6 + t * 14, h = roadPoint(CONG, s), lo = laneOffset(CONG);
-      const p = h.p.clone().add(V(Math.cos(h.yaw) * lo, 0, -Math.sin(h.yaw) * lo));
-      placeCar(taxi, p, h.yaw, { wheel: t * 40 });
-      const f = V(Math.sin(h.yaw), 0, Math.cos(h.yaw)), r = V(Math.cos(h.yaw), 0, -Math.sin(h.yaw));
-      const sw = lerp(-1, 1, easeIO(t / 6));
-      setCam(p.clone().addScaledVector(r, -5.5).addScaledVector(f, 4 + sw * 3).setY(1.3), p.clone().addScaledVector(f, -sw * 1.5).setY(0.9), 44);
+  // 2) The convoy roars in low over the camera.
+  { name: 'overhead', dur: BAR,
+    enter() { for (const c of fleet) c.v.root.visible = true; },
+    update(t) {
+      const k = t / BAR, f = RIV.f, r = RIV.r, u = 0.24 + k * 0.08;
+      fleet.forEach((c, i) => {
+        const p = mix3(RIV.a, RIV.b, u - i * 0.02).addScaledVector(r, c.side * 0.8 - 6).setY(5 + c.up);
+        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.04, roll: 0.05 * Math.sin(t * 2 + i) });
+        if (Math.random() < 0.8) splash(p.clone().setY(0.3).addScaledVector(f, -2.5));
+      });
+      const cp = mix3(RIV.a, RIV.b, 0.3).addScaledVector(r, -6).setY(1.2);
+      setCam(cp, fleet[0].v.pos.clone().lerp(cp.clone().addScaledVector(f, -30).setY(10), 0.35), 62);
     } },
-
-  // 4) ELONPD CHASE — tear down South Congress with an ElonPD cruiser on your tail.
-  { name: 'chase', dur: 7.0, cap: 'Take any car. Outrun ElonPD.',
-    enter() { hero = car('roadster', 0, 0, 0, { color: 0xffffff }); cop = car('police', 0, 0, 0); cop.siren = true; },
-    update(t, dt) {
-      const s0 = 30 + (SCZ.len - 60) * easeIO(t / 7);
-      const h = roadPoint(SCZ, s0), c = roadPoint(SCZ, s0 - 16);
-      const wob = Math.sin(t * 3.1) * 1.4;
-      const hp = h.p.clone().add(V(Math.cos(h.yaw) * wob, 0.4, -Math.sin(h.yaw) * wob));
-      const cp = c.p.clone().add(V(Math.cos(c.yaw) * -wob, 0.4, -Math.sin(c.yaw) * -wob));
-      placeCar(hero, hp, h.yaw, { wheel: t * 60 });
-      placeCar(cop, cp, c.yaw, { wheel: t * 60 });
-      const back = V(Math.sin(h.yaw), 0, Math.cos(h.yaw)).multiplyScalar(-11), sd = V(Math.cos(h.yaw), 0, -Math.sin(h.yaw)).multiplyScalar(2.5);
-      setCam(hp.clone().add(back).add(sd).add(V(0, 2.4, 0)), hp.clone().add(V(0, 1.0, 0)).add(V(Math.sin(h.yaw), 0, Math.cos(h.yaw)).multiplyScalar(10)), 52);
+  // 3) Tracking alongside the convoy, the towers on the far bank.
+  { name: 'alongside', dur: BAR * 2,
+    update(t) {
+      const k = t / (BAR * 2), f = RIV.f, r = RIV.r;
+      const lead = mix3(RIV.a, RIV.b, 0.34 + k * 0.3);
+      fleet.forEach((c, i) => {
+        const p = lead.clone().addScaledVector(f, -i * 7).addScaledVector(r, c.side).setY(4.2 + c.up + Math.sin(t * 1.7 + i) * 0.4);
+        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.04, roll: 0.06 * Math.sin(t * 1.3 + i) });
+        if (i < 3 && Math.random() < 0.7) splash(p.clone().setY(0.3).addScaledVector(f, -3));
+      });
+      const e = easeIO(k);
+      setCam(lead.clone().addScaledVector(r, -lerp(15, 10, e)).addScaledVector(f, lerp(-12, 4, e)).setY(lerp(2.0, 5.0, e)), lead.clone().addScaledVector(f, -8).setY(4.5), lerp(46, 40, e));
     } },
-
-  // 5) FLARE GUN — on foot on West 6th, two rogue robots charge; flares drop them in flames.
-  { name: 'flare', dur: 6.5, cap: 'Flare gun vs rogue robots',
-    enter() {
-      edgePoint(SIXTH, SIXTH.len * 0.45, _ep);
-      const yaw = Math.atan2(_ep.dx, _ep.dz), at = V(_ep.x, 0, _ep.z);
-      warm(at.x, at.z, 2); clearNear(at.x, at.z, 90);
-      for (const p of [...peds]) if (Math.hypot(p.pos.x - at.x, p.pos.z - at.z) < 30) removePed(p);
-      this.yaw = yaw;
-      player.pos.copy(at); player.yaw = yaw; look.yaw = yaw; look.pitch = 0.16;
-      playerBody.root.visible = true; G.mode = 'foot'; G.weapon = 4; G.health = 1e6;
-      const f = V(Math.sin(yaw), 0, Math.cos(yaw)), r = V(Math.cos(yaw), 0, -Math.sin(yaw));
-      this.bots = [[22, 1.6], [27, -2]].map(([d, o]) => { const q = at.clone().addScaledVector(f, d).addScaledVector(r, o); const b = spawnPed(q.x, q.z, { kind: 'bot', hp: 70 }); b.yaw = yaw + Math.PI; return b; });
-      this.n = 0;
-    },
+  // 4) Close on the Roadster's nose, spray off the water, the sun behind.
+  { name: 'closeup', dur: BAR,
+    update(t) {
+      const k = t / BAR, f = RIV.f, r = RIV.r;
+      const lead = mix3(RIV.a, RIV.b, 0.66 + k * 0.1);
+      fleet.forEach((c, i) => {
+        const p = lead.clone().addScaledVector(f, -i * 7).addScaledVector(r, c.side).setY(3.6 + c.up * 0.6 + Math.sin(t * 2 + i) * 0.3);
+        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.05, roll: 0.05 * Math.sin(t * 1.6 + i) });
+        if (Math.random() < 0.9) splash(p.clone().setY(0.3).addScaledVector(f, -2.2).addScaledVector(r, (Math.random() - 0.5) * 2));
+      });
+      const hp = fleet[0].v.pos;
+      setCam(hp.clone().addScaledVector(f, lerp(6.5, 5.5, k)).addScaledVector(r, lerp(-3.4, -2.2, k)).setY(hp.y + 0.6), hp.clone().addScaledVector(f, -1).setY(hp.y + 0.4), 50);
+    } },
+  // 5) Head-on, low over the water: they rip past the camera.
+  { name: 'headon', dur: BAR,
+    update(t) {
+      const k = t / BAR, f = RIV.f, r = RIV.r;
+      const lead = mix3(RIV.a, RIV.b, 0.88 + k * 0.13);
+      fleet.forEach((c, i) => {
+        const p = lead.clone().addScaledVector(f, -i * 7).addScaledVector(r, c.side).setY(3.2 + c.up * 0.6);
+        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.05, roll: 0.05 * Math.sin(t * 1.3 + i) });
+        if (Math.random() < 0.8) splash(p.clone().setY(0.3).addScaledVector(f, -3));
+      });
+      const camAt = mix3(RIV.a, RIV.b, 0.98).addScaledVector(r, -3).setY(1.5);
+      setCam(camAt, fleet[0].v.pos.clone().setY(3.4), lerp(40, 58, easeIO(k)));
+    } },
+  // 6) Off the river and up into downtown: chase camera on the Roadster as the towers rise around it.
+  { name: 'climb', dur: BAR * 2,
     update(t, dt) {
-      const yaw = this.yaw, f = V(Math.sin(yaw), 0, Math.cos(yaw)), r = V(Math.cos(yaw), 0, -Math.sin(yaw));
-      const tgt = this.bots.find(b => b.state !== 'dead' && b.state !== 'down' && b.hp > 0);
-      if (tgt) { const d = tgt.pos.clone().sub(player.pos); look.yaw = Math.atan2(d.x, d.z); }
-      const times = [1.1, 2.0, 2.9, 3.8];
-      if (this.n < times.length && t >= times[this.n]) { if (tgt) fireFlare(); this.n++; }
-      const k = easeIO(t / 6.5);
-      const p = player.pos.clone().addScaledVector(f, lerp(-3.6, -2.6, k)).addScaledVector(r, 1.2).setY(1.85);
-      setCam(p, player.pos.clone().addScaledVector(f, 14).setY(1.2), 50);
-    },
-    exit() { G.mode = 'cutscene'; playerBody.root.visible = false; } },
-
-  // 6) THE LOOP — a Tesla flies through the Boring Company tunnel under downtown.
-  { name: 'loop', dur: 6.0, cap: 'The Loop', sub: 'Boring Company tunnels under downtown',
-    enter() { tunnel = filmTunnel(3, 1); loopCar = car('modely', 0, 0, 0, { color: 0xf4f4f4 }); },
+      const k = t / (BAR * 2), u = lerp(0.0, 0.36, easeIO(k) * 0.4 + k * 0.6);
+      convoy(fleet, TOWERS, u, -0.012, 0.5, t);
+      const a = along(TOWERS, u), hp = fleet[0].v.pos;
+      const back = a.t.clone().setY(0).normalize();
+      const want = hp.clone().addScaledVector(back, -13).add(V(0, 3.2, 0)).addScaledVector(V(back.z, 0, -back.x), 2.5);
+      if (!camS.on || t === 0) { camS.p = want.clone(); camS.on = true; }
+      camS.p.lerp(want, 1 - Math.exp(-dt * 6));
+      setCam(camS.p, hp.clone().addScaledVector(back, 12).add(V(0, 1.5, 0)), 56);
+    } },
+  // 7) Threading the gap between two towers, seen from a ledge as they scream past.
+  { name: 'gap', dur: BAR,
+    update(t) {
+      const k = t / BAR, u = lerp(0.42, 0.52, k);
+      convoy(fleet, TOWERS, u, 0.016, 0.4, t);
+      const a = along(TOWERS, 0.5), side = V(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+      const cp = a.p.clone().addScaledVector(side, 9).addScaledVector(a.t.clone().setY(0).normalize(), 12).add(V(0, -2, 0));
+      setCam(cp, fleet[0].v.pos.clone().lerp(fleet[2].v.pos, 0.4), 54);
+    } },
+  // 8) The Roadster hangs between the towers in the evening sun; the camera circles it.
+  { name: 'orbit', dur: BAR,
+    update(t) {
+      const k = t / BAR, a = along(TOWERS, 0.6 + k * 0.012);
+      placeCar(fleet[0].v, a.p.clone().add(V(0, Math.sin(t * 2) * 0.3, 0)), a.yaw, { flying: true, pitch: -0.03, roll: 0.06 });
+      for (const c of fleet.slice(1)) c.v.root.visible = false;
+      const ang = a.yaw + lerp(2.2, 3.4, easeIO(k));
+      setCam(a.p.clone().add(V(Math.sin(ang) * 9, 1.6, Math.cos(ang) * 9)), a.p.clone().add(V(0, 0.6, 0)), 44);
+    } },
+  // 9) Out the top of downtown, banking up into the evening sky with the 8,400 on their highways.
+  { name: 'rise', dur: BAR * 2,
+    enter() { for (const c of fleet) c.v.root.visible = true; setAmbient(true); },
     update(t, dt) {
-      const L = tunnel.len, s = 60 + t * 34, u = clamp(s / L, 0, 1);
+      const k = t / (BAR * 2), u = lerp(0.72, 1.0, k);
+      convoy(fleet, TOWERS, u, 0.012, 0.6, t);
+      const hp = fleet[0].v.pos, a = along(TOWERS, u);
+      const back = a.t.clone().setY(0).normalize(), sd = V(back.z, 0, -back.x);
+      setCam(hp.clone().addScaledVector(back, lerp(-14, 10, easeIO(k))).addScaledVector(sd, lerp(6, 22, easeIO(k))).add(V(0, lerp(2, -4, k), 0)), hp.clone().add(V(0, 1, 0)), lerp(54, 46, k));
+    } },
+  // 10) The Loop: down the ramp and under the city at 150 km/h, rings of light rushing past.
+  { name: 'loopIn', dur: BAR * 2, cap: 'The Loop',
+    enter() { for (const c of fleet) c.v.root.visible = false; tunnel = filmTunnel(3, 1); loopCar = car('modely', 0, 0, 0, { color: 0xf4f4f4 }); },
+    update(t) {
+      const L = tunnel.len, s = 60 + t * 30, u = clamp(s / L, 0, 1);
       const p = tunnel.curve.getPointAt(u), tan = tunnel.curve.getTangentAt(u);
       placeCar(loopCar, p.clone().setY(p.y - 0.6), Math.atan2(tan.x, tan.z));
       tunnel.lamp.position.copy(p).addScaledVector(tan, 6);
-      const ahead = tunnel.curve.getPointAt(clamp((s + lerp(11, 7, easeIO(t / 6))) / L, 0, 1));
+      const ahead = tunnel.curve.getPointAt(clamp((s + lerp(12, 7, easeIO(t / (BAR * 2)))) / L, 0, 1));
       setCam(ahead.clone().add(V(0.9, 1.0, 0)), p.clone().add(V(0, 0.2, 0)), 58);
-    },
-    exit() { scene.remove(tunnel.g); tunnel = null; } },
-
-  // 7) LAUNCH — ignite the 33 Raptors, lift off the pad on a pillar of fire, climb into the sunset.
-  { name: 'launch', dur: 6.0, cap: 'Starship lifts off from Starbase', enter() { stageStarship(10, 0); setAmbient(false); },
-    update(t, dt) {
-      const pad = P.pad, tau = Math.max(0, t - 0.8);
-      const climb = 7 * tau * tau;
-      const thr = clamp(tau / 0.35, 0, 1);
-      stageStarship(10 + climb, thr);
-      if (thr > 0.1) { addShake(0.06 * clamp(1 - climb / 400, 0, 1)); if (climb < 140) for (let k = 0; k < 4; k++) thrust(V(pad.x + (Math.random() * 2 - 1) * 6, 2, pad.z + (Math.random() * 2 - 1) * 6), V(0, -1, 0), 3, 0xffa040); }
-      const k = easeIO(t / 6);
-      setCam(mix3(V(pad.x + 165, 16, pad.z + 140), V(pad.x + 205, 95, pad.z + 180), k),
-             V(pad.x, Math.min(30 + climb * 0.5, 150), pad.z), 44);
     } },
-
-  // 8) CATCH — Super Heavy drops back between Mechazilla's chopsticks.
-  { name: 'catch', dur: 6.0, cap: 'Caught by the chopsticks', enter() { starbase.sticks && (starbase.sticks.rotation.y = 0.18); },
-    update(t, dt) {
-      const tw = starbase.tower, k = easeIO(t / 4.2);
-      const y = lerp(150, 22, k);
-      starship.position.set(tw.x + 16, y, tw.z); starship.rotation.set(0, 0, 0); starship.visible = true;
-      ssPlume.visible = t < 4.4; if (ssPlume.material.uniforms) { ssPlume.material.uniforms.uT.value = G.t; ssPlume.material.uniforms.uK.value = t < 4.4 ? clamp((4.4 - t), 0, 1) * 0.9 : 0; }
-      if (starbase.sticks) starbase.sticks.rotation.y = lerp(0.18, 0.04, clamp((t - 3.4) / 1.2, 0, 1));
-      if (t > 4.3 && t < 4.5) { sparks(V(tw.x + 16, 40, tw.z), 70); addShake(0.9); }
-      setCam(mix3(V(tw.x + 150, 34, tw.z + 128), V(tw.x + 108, 78, tw.z + 92), k), V(tw.x + 16, lerp(95, 52, k), tw.z), 44);
-    },
-    exit() { stageStarship(10, 0); } },
-
-  // 9) EVERY CAR FLIES — the Roadster banks through the downtown glass towers.
-  { name: 'flight', dur: 7.0, cap: 'Every car flies',
-    enter() { setAmbient(true); flyer = car('roadster', DT.x - 240, DT.z + 180, 0, { color: 0xc8101e }); },
-    update(t, dt) {
-      const a = V(DT.x - 240, 78, DT.z + 180), b = V(DT.x + 240, 92, DT.z - 150);
-      const p = flyArc(t, 7, a, b, 26);
-      const nx = flyArc(t + 0.1, 7, a, b, 26); const dir = nx.clone().sub(p);
-      const yaw = Math.atan2(dir.x, dir.z), roll = clamp(-dir.x * 0.02, -0.5, 0.5);
-      placeCar(flyer, p, yaw, { flying: true, pitch: -0.06, roll, wheel: t * 40 });
-      const side = V(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(22);
-      setCam(p.clone().add(side).add(V(0, 5, 0)), p.clone().add(V(0, 1, 0)), 46);
-    } },
-
-  // 9b) RIVER — a formation of flying cars skimming Lady Bird Lake at sunset, downtown towers along the bank.
-  { name: 'river', dur: 7.0, cap: 'Skim Lady Bird Lake',
-    enter() {
-      this.cars = [['roadster', 0xc8101e, 0, 0], ['cybertruck', 0xb9bec6, -9, 4.5], ['modely', 0xf4f4f4, -11, -5], ['roadster', 0x15171c, -20, 0.5]]
-        .map(([k, c, back, side]) => ({ v: car(k, RIV.a.x, RIV.a.z, 0, { color: c }), back, side }));
-    },
+  { name: 'loopRush', dur: BAR,
     update(t) {
-      const k = t / 7, f = RIV.f, r = RIV.r;
-      const lead = mix3(RIV.a, RIV.b, 0.05 + k * 0.42);
-      for (const [i, c] of this.cars.entries()) {
-        const p = lead.clone().addScaledVector(f, c.back).addScaledVector(r, c.side);
-        p.y = 4.5 + Math.sin(t * 1.7 + i) * 0.5 + i * 0.6;
-        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.04, roll: 0.06 * Math.sin(t * 1.3 + i) });
-        if (i < 2 && Math.random() < 0.6) splash(p.clone().setY(0.3).addScaledVector(f, -3));
-      }
-      const e = easeIO(k);
-      setCam(lead.clone().addScaledVector(r, -lerp(24, 15, e)).addScaledVector(f, lerp(-14, 6, e)).setY(lerp(2.2, 6.5, e)), lead.clone().addScaledVector(f, -6).setY(4), lerp(46, 40, e));
-    } },
-  // 9c) RIVER, head-on — low over the water as they rip past the camera into the sun.
-  { name: 'river2', dur: 4.5, cap: '',
-    update(t) {
-      const k = t / 4.5, f = RIV.f, r = RIV.r;
-      const lead = mix3(RIV.a, RIV.b, 0.55 + k * 0.3);
-      for (const [i, c] of shots[shots.findIndex(s => s.name === 'river')].cars.entries()) {
-        const p = lead.clone().addScaledVector(f, c.back).addScaledVector(r, c.side);
-        p.y = 3.5 + Math.sin(t * 1.7 + i) * 0.4 + i * 0.5;
-        placeCar(c.v, p, RIV.yaw, { flying: true, pitch: -0.05, roll: 0.05 * Math.sin(t * 1.3 + i) });
-        if (Math.random() < 0.7) splash(p.clone().setY(0.3).addScaledVector(f, -3));
-      }
-      const camAt = mix3(RIV.a, RIV.b, 0.82).addScaledVector(r, -4).setY(1.6);
-      setCam(camAt, lead.clone().setY(3.5), lerp(38, 54, easeIO(k)));
-    } },
-
-  // 10) ROOFTOP — a Cybertruck drops out of the sky and touches down on top of Frost Bank Tower.
-  { name: 'roof', dur: 6.5, cap: 'Land on any rooftop',
-    enter() { setAmbient(false); flyer = car('cybertruck', FROST.x, FROST.z, 0, { color: 0xb9bec6 }); this.y0 = groundAt(FROST.x, FROST.z, 400); this.landed = false; },
-    update(t, dt) {
-      const R = this.y0, k = easeOut(clamp(t / 4.2, 0, 1));
-      const from = V(FROST.x - 120, R + 70, FROST.z + 90), to = V(FROST.x, R, FROST.z);
-      const p = mix3(from, to, k); p.y = lerp(from.y, to.y, k * k * (3 - 2 * k));
-      const yaw = Math.atan2(to.x - from.x, to.z - from.z);
-      placeCar(flyer, p, yaw, { flying: t < 4.2, pitch: lerp(-0.12, 0, k), roll: 0.18 * (1 - k) });
-      if (t > 4.2 && !this.landed) { this.landed = true; for (let i = 0; i < 26; i++) dust(V(FROST.x + (Math.random() - 0.5) * 8, R + 0.5, FROST.z + (Math.random() - 0.5) * 8), 4); addShake(0.4); }
-      const a = 0.9 + t * 0.07;
-      setCam(V(FROST.x + Math.sin(a) * 34, R + 9 + 4 * (1 - k), FROST.z + Math.cos(a) * 34), p.clone().add(V(0, 1, 0)), 50);
-    } },
-
-  // 11) SKY HIGHWAYS — 8,400 flying cars on stacked lanes and 3,000 drones over Austin.
-  { name: 'sky', dur: 7.0, cap: '8,400 flying cars · 3,000 drones', sub: 'Sky highways up to 1 km',
-    enter() {
-      setAmbient(true);
-      const kinds = ['roadster', 'cybertruck', 'modely', 'semi', 'roadster', 'cybercab', 'cybertruck', 'roadster', 'modely', 'roadster', 'semi', 'cybertruck'];
-      const paint = [0xc8101e, 0xb9bec6, 0xf4f4f4, 0xf4f4f4, 0x15171c, 0xffc935, 0x9aa1aa, 0x1f5fd1, 0x15171c, 0xffffff, 0xc8101e, 0xb9bec6];
-      this.fleet = kinds.map((k, i) => ({ v: car(k, 0, 0, 0, { color: paint[i] }), lane: i % 3, ph: i * 37 + (i % 3) * 13 }));
+      const L = tunnel.len, s = 60 + (BAR * 2) * 30 + t * 42, u = clamp(s / L, 0, 1);
+      const p = tunnel.curve.getPointAt(u), tan = tunnel.curve.getTangentAt(u);
+      placeCar(loopCar, p.clone().setY(p.y - 0.6), Math.atan2(tan.x, tan.z));
+      tunnel.lamp.position.copy(p).addScaledVector(tan, 6);
+      const behind = tunnel.curve.getPointAt(clamp((s - 7) / L, 0, 1));
+      setCam(behind.clone().add(V(0, 1.7, 0)), p.clone().addScaledVector(tan, 14).add(V(0, 0.6, 0)), 70);
     },
+    exit() { scene.remove(tunnel.g); tunnel = null; loopCar.root.visible = false; } },
+  // 11) Night: the skyline lit up, rivers of headlights and tail-lights on the sky highways.
+  { name: 'night', dur: BAR * 2, cap: 'Night in Elon City',
+    enter() { G.setNight(true); nightLook(); setAmbient(true); starPx(); },
     update(t) {
-      const C = V(DT.x + 180, 210, DT.z + 160), d = V(1, 0, -0.35).normalize(), r = V(d.z, 0, -d.x);
-      const lanes = [[r.clone().multiplyScalar(-14), 0, 1, 46], [r.clone().multiplyScalar(-26), 7, -1, 40], [r.clone().multiplyScalar(-44), -9, 1, 52]];
-      for (const c of this.fleet) {
-        const [off, dy, dir, sp] = lanes[c.lane];
-        const along = ((c.ph + t * sp) % 440) - 220;
-        const p = C.clone().add(off).addScaledVector(d, along * dir).add(V(0, dy + Math.sin(t + c.ph) * 0.6, 0));
-        placeCar(c.v, p, Math.atan2(d.x * dir, d.z * dir), { flying: true, pitch: -0.03, roll: 0.04 * Math.sin(t * 1.5 + c.ph) });
-      }
-      const k = easeIO(t / 7);
-      setCam(C.clone().addScaledVector(d, lerp(-6, 10, k)).add(V(0, lerp(3, 8, k), 0)), C.clone().addScaledVector(r, -60).addScaledVector(d, lerp(-30, 40, k)).add(V(0, lerp(-6, 4, k), 0)), lerp(60, 54, k));
+      const k = easeIO(t / (BAR * 2));
+      dolly(k, V(DT.x + 560, 90, DT.z + 520), V(DT.x + 430, 130, DT.z + 400), V(DT.x, 90, DT.z), V(DT.x - 30, 120, DT.z - 30), 46, 42);
+      starPx();
     } },
-
-  // 12) NOT-A-FLAMETHROWER — the Roadster hovers and torches a swarm of rogue drones.
-  { name: 'flame', dur: 5.5, cap: 'Not a flamethrower',
-    enter() {
-      setAmbient(false);
-      flyer = car('roadster', DT.x - 36, DT.z - 26, Math.PI * 0.5, { color: 0xc8101e });
-      swarm = []; const C = V(DT.x + 42, 90, DT.z + 2);
-      for (let i = 0; i < 9; i++) swarm.push(spawnDrone(C.x + (i % 3 - 1) * 12, C.z + (Math.floor(i / 3) - 1) * 10, { y: C.y + (i % 3 - 1) * 6, mission: 'film' }));
-    },
-    update(t, dt) {
-      const S = V(DT.x - 30, 88, DT.z - 24);
-      placeCar(flyer, S, Math.atan2(1, 0.2) + 0.1 * Math.sin(t), { flying: true, pitch: -0.05, roll: 0.05 * Math.sin(t * 1.3) });
-      const live = swarm.filter(d => !d.dead);
-      const aim = (live[0]?.pos || V(DT.x + 42, 90, DT.z + 2)).clone();
-      const muzzlePt = S.clone().add(V(Math.cos(flyer.yaw) * 2.2, 0.2, -Math.sin(flyer.yaw) * 2.2));
-      const dir = aim.clone().sub(muzzlePt).normalize();
-      if (t > 0.3) for (let k = 0; k < 8; k++) flame(muzzlePt.clone(), dir.clone().add(V((Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.2)), 0.2, 30);
-      swarm.forEach((d, i) => { if (!d.dead && t > 0.8 + i * 0.45) { explode(d.pos.clone(), 1.2); sparks(d.pos.clone(), 28); d.g.visible = false; d.dead = true; addShake(0.3); } });
-      const k = easeIO(t / 5.5);
-      setCam(mix3(V(DT.x - 72, 92, DT.z - 44), V(DT.x - 58, 96, DT.z - 30), k), mix3(S, aim, 0.55).add(V(0, 2, 0)), 52);
-    } },
-
-  // 13) STARLINK STRIKE — bolts rain down from orbit across the block.
-  { name: 'starlink', dur: 5.5, cap: 'Call down a Starlink strike', enter() { this.done = new Set(); this.hits = []; },
-    update(t, dt) {
-      const fire = (gx, gz) => { for (let k = 0; k < 2; k++) bolt(V(gx + (Math.random() - 0.5) * 6, 440, gz + (Math.random() - 0.5) * 6), V(gx, 2, gz), 0x9fe8ff); explode(V(gx, 2, gz), 1.5); sparks(V(gx, 3, gz), 20); addShake(0.6); this.hits.push({ gx, gz, t }); };
-      if (t > 0.5) { const n = Math.floor((t - 0.5) / 0.6); if (!this.done.has(n) && n < 6) { this.done.add(n); fire(DT.x + (Math.random() * 2 - 1) * 85, DT.z + (Math.random() * 2 - 1) * 85); } }
-      if (t > 4.2 && !this.done.has('barrage')) { this.done.add('barrage'); for (let b = 0; b < 5; b++) fire(DT.x + (Math.random() * 2 - 1) * 70, DT.z + (Math.random() * 2 - 1) * 70); }
-      for (const h of this.hits) if (t - h.t < 0.18) bolt(V(h.gx, 440, h.gz), V(h.gx, 2, h.gz), 0x9fe8ff);
-      const k = easeIO(t / 5.5);
-      setCam(mix3(V(DT.x + 150, 8, DT.z + 150), V(DT.x + 108, 22, DT.z + 118), k), V(DT.x, 55, DT.z), lerp(54, 46, k));
-    } },
-
-  // 14) NIGHT — the city lights up: windows, street lamps, sky traffic and Starlink trains overhead.
-  { name: 'night', dur: 8.0, cap: 'Night in Elon City', sub: 'Press N anytime',
-    enter() { G.setNight(true); nightLook(); setAmbient(true); edgePoint(CONG, CONG.len / 2, _ep); warm(_ep.x, _ep.z, 1); },
+  // 12) Look up from a rooftop: Starlink trains and thousands of satellites crossing the stars.
+  { name: 'starlink', dur: BAR * 2, cap: 'Thousands of Starlink satellites',
     update(t) {
-      const k = easeIO(t / 8);
-      dolly(k, V(DT.x + 520, 60, DT.z + 520), V(DT.x + 380, 150, DT.z + 380), V(DT.x, 70, DT.z), V(DT.x - 40, 110, DT.z - 40), 50, 46);
+      const k = easeIO(t / (BAR * 2)), R = groundAt(FROST.x, FROST.z, 400);
+      setCam(V(FROST.x + 14, R + 4, FROST.z + 12), V(FROST.x - 260, R + lerp(110, 150, k), FROST.z - lerp(260, 200, k)), 62);
+      starPx();
     } },
-
-  // 15) FINALE — crane up over night downtown into the stars; the title lands.
-  { name: 'finale', dur: 8.0, title: true,
-    enter() { flyer = car('roadster', DT.x - 300, DT.z - 40, 0, { color: 0xc8101e }); },
-    update(t, dt) {
-      const a = V(DT.x - 320, 120, DT.z - 40), b = V(DT.x + 320, 150, DT.z - 10);
-      const p = flyArc(t, 8, a, b, 14); const nx = flyArc(t + 0.1, 8, a, b, 14); const dir = nx.clone().sub(p);
-      placeCar(flyer, p, Math.atan2(dir.x, dir.z), { flying: true, pitch: -0.04, roll: 0.12 });
-      const k = easeIO(t / 8);
-      dolly(k, V(DT.x + 420, 90, DT.z + 440), V(DT.x + 260, 260, DT.z + 300),
-               V(DT.x, 45, DT.z), V(DT.x, 150, DT.z), 52, 44);
-      nightLook();
+  // 13) Up among the sky highways at night: rivers of headlights and tail-lights over the skyline.
+  { name: 'nightRun', dur: BAR,
+    update(t) {
+      const k = easeIO(t / BAR);
+      setCam(V(DT.x + 260, 150, DT.z + 260), V(DT.x - lerp(40, 120, k), 175, DT.z - lerp(120, 40, k)), 58);
+      starPx();
+    } },
+  // 14) Title over the night skyline.
+  { name: 'finale', dur: BAR * 2 + 1.6, title: true,
+    enter() { for (const c of fleet) c.v.root.visible = false; },
+    update(t) {
+      const k = easeIO(t / (BAR * 2 + 1.6));
+      dolly(k, V(DT.x + 420, 90, DT.z + 440), V(DT.x + 300, 210, DT.z + 320), V(DT.x, 60, DT.z), V(DT.x, 160, DT.z), 50, 44);
+      nightLook(); starPx();
     } },
 ];
 
@@ -411,9 +395,10 @@ film.scout = () => {
 film.step = dt => { G.t += dt; runUpdaters(dt); director.tick(dt); applyCam(); };
 film.setSize = (W, H) => {
   film.W = W; film.H = H;
-  renderer.setPixelRatio(1); renderer.setSize(W, H, false);
-  composer.setPixelRatio?.(1); composer.setSize(W, H);
-  bloom?.resolution?.set?.(W, H);
+  const rw = Math.round(W * hq.ss), rh = Math.round(H * hq.ss);
+  renderer.setPixelRatio(1); renderer.setSize(rw, rh, false);
+  composer.setPixelRatio?.(1); composer.setSize(rw, rh);
+  bloom?.resolution?.set?.(rw, rh);
   camera.aspect = W / H; camera.updateProjectionMatrix();
   renderer.shadowMap.enabled = true;
 };
@@ -448,7 +433,7 @@ function overlay(g, W, H) {
       g.save(); g.translate(cx, cy - 120 * u); g.rotate(0.06);
       g.font = `900 ${Math.round(120 * u)}px "Saira Condensed"`; g.letterSpacing = `${Math.round(8 * u)}px`;
       g.lineWidth = 6 * u; g.strokeStyle = '#000'; g.strokeText('GTA', 0, 0); g.fillStyle = '#fff'; g.fillText('GTA', 0, 0); g.restore();
-      g.font = `400 ${Math.round(64 * u)}px Pacifico`; g.letterSpacing = '0px';
+      g.font = `400 ${Math.round(84 * u)}px Pacifico`; g.letterSpacing = '0px';
       g.shadowColor = 'rgba(63,227,240,.7)'; g.shadowBlur = 16 * u; g.fillStyle = 'rgba(63,227,240,.8)';
       const vy = cy - 30 * u; g.fillText('Vice', cx, vy);
       const vw = g.measureText('Vice').width; g.shadowBlur = 0; g.strokeStyle = '#ff2d55'; g.lineWidth = 9 * u;
@@ -466,10 +451,12 @@ function overlay(g, W, H) {
   if (black > 0) { g.fillStyle = `rgba(0,0,0,${black})`; g.fillRect(0, 0, W, H); }
 }
 film.renderFrame = async () => {
-  if (canvas.width !== film.W || canvas.height !== film.H) film.setSize(film.W, film.H);
+  if (canvas.width !== Math.round(film.W * hq.ss)) film.setSize(film.W, film.H);
+  if (hq.grade) { hq.grade.uniforms.uT.value = (film.simT * 37.0) % 100; hq.grade.uniforms.uNight.value = G.night ? 1 : 0; }
   composer.render();
   if (out.width !== film.W) { out.width = film.W; out.height = film.H; }
   const g = out.getContext('2d');
+  g.imageSmoothingQuality = 'high';
   g.drawImage(canvas, 0, 0, film.W, film.H);
   overlay(g, film.W, film.H);
   return await new Promise(r => out.toBlob(r, 'image/jpeg', 0.95));
@@ -545,6 +532,7 @@ film.boot = () => new Promise(res => {
 (async () => {
   await film.boot();
   try { await Promise.all(['700 40px "Saira Condensed"', '500 24px "Saira Condensed"', '900 120px "Saira Condensed"', '64px Pacifico'].map(f => document.fonts.load(f))); } catch {}
+  if (Q.get('hq') !== '0') enableHQ();
   const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080;
   film.setSize(W, H);
   if (Q.get('auto')) film.run(+Q.get('from') || 0, +Q.get('to') || 1e9);

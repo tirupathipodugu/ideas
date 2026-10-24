@@ -1188,6 +1188,21 @@ export const terminals = places.terminals.map(p => {
 });
 
 const skyLaneT = { value: 0 };
+// Thousands of tiny far-away cars and drones read as dirt in the sky by day and merge into a black band
+// against the night fog. So each one fades out with distance (a dithered cut, no sorting needed).
+const farFade = (sh, near, far) => {
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', `#include <common>
+      varying float vFar;`)
+    .replace('#include <project_vertex>', `#include <project_vertex>
+      vFar = -mvPosition.z;`);
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying float vFar;`)
+    .replace('#include <clipping_planes_fragment>', `if (vFar > mix(${near.toFixed(1)}, ${far.toFixed(1)}, fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453))) discard;
+      #include <clipping_planes_fragment>`);
+};
+
 // Starlink: thousands of satellites in orbital shells sweeping across the sky, plus fresh "trains"
 // of 60 in a line after a launch. All the motion is in the shader, so it costs nothing on the CPU.
 export const nightU = { value: 0 };
@@ -1251,7 +1266,7 @@ export const nightU = { value: 0 };
     fragmentShader: `varying float vA;
       void main(){
         float d = length(gl_PointCoord - 0.5);
-        float a = smoothstep(0.5, 0.0, d) * vA;
+        float a = (1.0 - smoothstep(0.0, 0.5, d)) * vA;
         if (a < 0.01) discard;
         gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * 0.8, a);
       }`,
@@ -1394,6 +1409,7 @@ G.setNight = on => {
           vec3 at = vec3(lane.x + sa * along, alt.x + sin(uT * 0.7 + alt.y) * 1.2, lane.y + ca * along);
           transformed = vec3(transformed.x * ca + transformed.z * sa, transformed.y, -transformed.x * sa + transformed.z * ca) + at;
         }`);
+    farFade(sh, 380.0, 700.0);
   };
   // A simple Tesla-ish shape: low body, sloped glass cabin, wheels tucked up for flight.
   const body = mergeGeometries([
@@ -1446,7 +1462,7 @@ G.setNight = on => {
           gl_PointSize = uNight * clamp(900.0 / -mv.z, 1.6, 6.0) * uPx;
         }`,
       fragmentShader: `varying vec3 vC;
-        void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.1, d); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.4, a); }`,
+        void main(){ float d = length(gl_PointCoord - 0.5); float a = (1.0 - smoothstep(0.1, 0.5, d)); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.4, a); }`,
     });
     const pts = new THREE.Points(g, m);
     pts.frustumCulled = false;
@@ -1480,6 +1496,7 @@ G.setNight = on => {
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         { float yw; vec3 at = dronePos(yw); float c = cos(yw), s = sin(yw);
           transformed = vec3(transformed.x * c + transformed.z * s, transformed.y, -transformed.x * s + transformed.z * c) + at; }`);
+    farFade(sh, 220.0, 420.0);
   };
   // A quadcopter: body, two crossed arms, four rotor discs.
   const parts = [new THREE.BoxGeometry(0.5, 0.18, 0.5), new THREE.BoxGeometry(1.7, 0.06, 0.08).rotateY(Math.PI / 4), new THREE.BoxGeometry(1.7, 0.06, 0.08).rotateY(-Math.PI / 4)];
@@ -1513,7 +1530,7 @@ G.setNight = on => {
         gl_Position = projectionMatrix * mv;
         gl_PointSize = mix(0.35, 1.0, uNight) * (0.5 + blink) * clamp(500.0 / -mv.z, 1.2, 5.0) * uPx;
       }`,
-    fragmentShader: 'varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.1, d); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.5, a); }',
+    fragmentShader: 'varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5); float a = (1.0 - smoothstep(0.1, 0.5, d)); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.5, a); }',
   });
   const pts = new THREE.Points(g, pm);
   pts.frustumCulled = false;
