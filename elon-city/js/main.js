@@ -1,6 +1,6 @@
 // Boot: load the cars, open the start screen, run the loop.
 import { THREE, V3, G, $, keys, hit, clearHits, press, look, renderer, composer, bloom, scene, camera, runUpdaters, bus, clamp, IS_MOBILE, canvas } from './core.js';
-import { places, blockC } from './world.js';
+import { places } from './world.js';
 import './fx.js';
 import { initAudio, setSound, sound, nextStation } from './audio.js';
 import { loadModels, spawnVehicle, fillTraffic } from './vehicles.js';
@@ -10,6 +10,7 @@ import './peds.js';
 import './drones.js';
 import { player } from './player.js';
 import './police.js';
+import './loop.js';
 import { load, save, resetSave, jobNow, storyProgress } from './missions.js';
 import { hudFrame, clearTouchPresses, toggleMap } from './hud.js';
 
@@ -42,16 +43,16 @@ const begin = fresh => {
   document.body.classList.add('playing');
   G.started = true;
   // Cars parked around the Gigafactory to get you going.
-  const g = places.giga;
-  spawnVehicle('roadster', g.x - 14, g.z + 5, Math.PI / 2).keep = true;
-  spawnVehicle('cybertruck', g.x + 14, g.z + 5, -Math.PI / 2).keep = true;
-  spawnVehicle('semi', g.x + 26, g.z - 2, 0).keep = true;
-  spawnVehicle('modely', g.x - 24, g.z + 5, Math.PI / 2);
+  const c = places.gigaCars, y = places.gigaYaw;
+  spawnVehicle('roadster', c[2].x, c[2].z, y).keep = true;
+  spawnVehicle('cybertruck', c[3].x, c[3].z, y).keep = true;
+  spawnVehicle('semi', c[4].x, c[4].z, y).keep = true;
+  spawnVehicle('modely', c[5].x, c[5].z, y);
   fillTraffic(player.pos);
   G.refreshJobs();
   bus.weapon();
-  look.yaw = 0;
-  player.yaw = 0;
+  look.yaw = places.spawnYaw;
+  player.yaw = places.spawnYaw;
   look.pitch = 0.22;
   bus.big('ELON CITY', G.done.length ? `Welcome back. Story ${storyProgress()} · $${G.money.toLocaleString()}` : 'Walk into the yellow marker for your first job. Green, blue and pink markers are side jobs.', '#ff4fa3', 5);
   if (!IS_MOBILE) canvas.requestPointerLock?.();

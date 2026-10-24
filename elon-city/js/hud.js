@@ -1,6 +1,6 @@
 // The screen: money, health, stars, weapon, radio, minimap, big messages, toasts, the full map, and touch controls.
 import { G, $, bus, touch, look, keys, press, clamp, IS_MOBILE } from './core.js';
-import { HALF, LAND, road, blockC, N, places, PITCH, ROAD, BLOCK } from './world.js';
+import { HALF, LAND, places, MAP } from './world.js';
 import { vehicles } from './vehicles.js';
 import { drones } from './drones.js';
 import { peds } from './peds.js';
@@ -70,31 +70,52 @@ bus.vehicle = v => {
 const mm = $('mini');
 const mg = mm.getContext('2d');
 // The city drawn once, then cut out around you each frame.
-const MAP_PX = 1024;
+const MAP_PX = 2560;
 const W = LAND.maxx - LAND.minx, Hh = LAND.maxz - LAND.minz;
 const S = MAP_PX / Math.max(W, Hh);
-const LANDMARKS = [[places.giga, '#e82127'], [places.boring, '#6b6f78'], [places.starlink, '#111111'], [places.service, '#e82127'], [places.police, '#1d4fa0'], [places.pad, '#222222'], [places.portalA.at, '#2a7bff'], [places.portalB.at, '#2a7bff']];
-const NAMES = [[places.giga, 'Gigafactory'], [places.boring, 'Boring Co.'], [places.starlink, 'Starlink'], [places.service, 'Tesla Service'], [places.police, 'ElonPD'], [places.pad, 'Starbase'], [places.portalA.at, 'Tunnel'], [places.portalB.at, 'Tunnel'], [places.lot, 'Rival Motors']];
+const LANDMARKS = [[places.giga, '#e82127'], [places.boring, '#6b6f78'], [places.starlink, '#111111'], [places.service, '#e82127'], [places.police, '#1d4fa0'], [places.pad, '#222222'], ...places.loop.map(l => [l.at, '#2a7bff'])];
+const NAMES = [[places.giga, 'Giga Texas'], [places.boring, 'Boring Co.'], [places.starlink, 'Starlink'], [places.service, 'Tesla Service'], [places.police, 'ElonPD'], [places.pad, 'Starbase'], [places.lot, 'Rival Motors'], [places.capitol, 'Texas Capitol'], ...places.loop.map(l => [l.at, 'Loop']), ...MAP.landmarks.filter(l => /Lady Bird Lake|6th Street|Congress Avenue Bridge|Rainey Street|Republic Square|Frost Bank|Convention Center$/.test(l.n)).map(l => [{ x: l.x, z: l.z }, l.n.replace(/ \(Dirty Sixth\)/, '').replace('Ann W. Richards ', '')])];
 const base = document.createElement('canvas');
 base.width = MAP_PX;
 base.height = MAP_PX;
 {
+  // Downtown Austin from the map data: ground, parks, the lake, buildings, then the streets on top.
   const g = base.getContext('2d');
-  g.fillStyle = '#1b6f8f';
-  g.fillRect(0, 0, MAP_PX, MAP_PX);
   const X = x => (x - LAND.minx) * S, Z = z => (z - LAND.minz) * S;
-  g.fillStyle = '#e9c99a';
-  g.fillRect(X(LAND.minx), Z(LAND.minz), W * S, Hh * S);
-  g.fillStyle = '#3a3646';
-  g.fillRect(X(-HALF - ROAD / 2), Z(-HALF - ROAD / 2), (2 * HALF + ROAD) * S, (2 * HALF + ROAD) * S);
-  g.fillRect(X(HALF), Z(-ROAD / 2), 160 * S, ROAD * S);
-  for (let i = 0; i < N; i++)
-    for (let j = 0; j < N; j++) {
-      g.fillStyle = '#c9c0d6';
-      g.fillRect(X(blockC(i) - BLOCK / 2), Z(blockC(j) - BLOCK / 2), BLOCK * S, BLOCK * S);
+  g.fillStyle = '#ddd6c8';
+  g.fillRect(0, 0, MAP_PX, MAP_PX);
+  const ring = (p, h) => {
+    g.moveTo(X(p[0]), Z(p[1]));
+    for (let i = 2; i < p.length; i += 2) g.lineTo(X(p[i]), Z(p[i + 1]));
+    g.closePath();
+    for (const r of h || []) {
+      g.moveTo(X(r[0]), Z(r[1]));
+      for (let i = 2; i < r.length; i += 2) g.lineTo(X(r[i]), Z(r[i + 1]));
+      g.closePath();
     }
-  g.fillStyle = '#5fae5a';
-  for (const p of [places.park]) g.fillRect(X(p.x - 29), Z(p.z - 39), 58 * S, 58 * S);
+  };
+  const fill = (list, col) => {
+    g.fillStyle = col;
+    for (const it of list) {
+      g.beginPath();
+      ring(it.p, Array.isArray(it.h) ? it.h : null);
+      g.fill('evenodd');
+    }
+  };
+  fill(MAP.parks, '#93c47d');
+  fill(MAP.water, '#3d8fb0');
+  fill(MAP.buildings, '#bdb5c9');
+  g.lineCap = g.lineJoin = 'round';
+  for (const pass of [0, 1]) {
+    for (const e of MAP.roads.edges) {
+      g.strokeStyle = pass ? (e.c.startsWith('motorway') ? '#f2c94c' : e.c === 'service' ? '#6e6a78' : '#4a4656') : '#2e2b36';
+      g.lineWidth = Math.max(1.5, e.w * S) + (pass ? 0 : 2);
+      g.beginPath();
+      g.moveTo(X(e.p[0]), Z(e.p[1]));
+      for (let i = 2; i < e.p.length; i += 2) g.lineTo(X(e.p[i]), Z(e.p[i + 1]));
+      g.stroke();
+    }
+  }
   g.fillStyle = '#bfc3c9';
   g.beginPath();
   g.arc(X(places.pad.x), Z(places.pad.z), 34 * S, 0, 7);
@@ -260,7 +281,7 @@ const controlRows = () => {
   if (G.mode === 'car' && v) {
     const rows = m
       ? [['Stick', 'steer · gas · brake'], ['BOOST', 'boost'], ['JUMP', 'handbrake'], ['ENTER', 'get out']]
-      : [['W', 'gas'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'boost'], ['Space', v.flying ? 'fly up' : 'handbrake'], ['F', 'get out'], ['H', 'horn'], ['R', 'radio'], ['V', 'camera']];
+      : [['W S', 'gas · brake'], ['A D', 'steer'], ['Shift', 'boost'], ['Space', v.flying ? 'fly up' : 'handbrake'], ['F', 'get out'], ['H R', 'horn · radio']];
     if (v.spec.canFly) rows.push(...(m ? [['FLY', v.flying ? 'land' : 'fly'], ['UP DOWN', 'climb · descend'], ['ROLL', 'thruster hop + barrel roll']] : [['G', v.flying ? 'land' : 'fly'], ['C', 'descend'], ['B', 'thruster hop + barrel roll']]));
     if (G.weapons[3] || G.weapons[4]) rows.push(m ? ['FIRE', 'Starlink / flare'] : ['Click', 'Starlink strike / flare']);
     return [v.name, rows];

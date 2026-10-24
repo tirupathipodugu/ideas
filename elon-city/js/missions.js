@@ -1,6 +1,6 @@
 // The story (six missions) and endless jobs: Semi hauls, robotaxi fares, drone swarms, sky races, Starlink repairs, rocket cargo.
-import { THREE, V3, scene, camera, G, keys, hit, touch, bus, clamp, rnd, pick, onUpdate, damp, IS_MOBILE } from './core.js';
-import { places, terminals, starship, starbase, nodes, road, blockC, HALF, N } from './world.js';
+import { THREE, V3, scene, camera, G, keys, hit, touch, bus, clamp, rnd, pick, onUpdate, damp, IS_MOBILE, insideSolid } from './core.js';
+import { places, terminals, starship, starbase, nodes, HALF } from './world.js';
 import { vehicles, spawnVehicle, removeVehicle, startAI, fwdVec, blowUp } from './vehicles.js';
 import { spawnDrone, drones, removeDrone } from './drones.js';
 import { peds, spawnPed, removePed, animHuman } from './peds.js';
@@ -142,8 +142,15 @@ const STORY = [
     intro: 'Three battery drops across town before the line stops. Take the Cybertruck.',
     reward: 5000,
     start(ctx) {
-      ctx.truck = keepCar('cybertruck', places.giga.clone().add(new V3(8, 0, 13)), Math.PI / 2, ctx);
-      ctx.drops = [new V3(road(6), 0, road(2)), new V3(road(2), 0, road(3)), new V3(road(5), 0, road(7))];
+      ctx.truck = keepCar('cybertruck', places.gigaCars[1], places.gigaYaw, ctx);
+      // Three drops around downtown, each a fair drive from the last.
+      ctx.drops = [];
+      let from = places.giga;
+      for (let k = 0; k < 3; k++) {
+        const n = randomNodeNear(from, 350, 650);
+        from = new V3(n.x, 0, n.z);
+        ctx.drops.push(from);
+      }
       ctx.f = follow(ctx.truck, '#3fd6ff');
       ctx.clean.push(ctx.f.remove);
       bus.objective('Get in the <b>Cybertruck</b>.');
@@ -187,7 +194,7 @@ const STORY = [
       bus.weapon();
       unlockFlameCrate();
       bus.toast('Got the Not-a-Flamethrower. Hold fire to use it.');
-      const c = new V3(blockC(4), 0, blockC(4));
+      const c = places.park.clone();
       ctx.drones = [];
       for (let k = 0; k < 8; k++) {
         const d = spawnDrone(c.x + rnd(-60, 60), c.z + rnd(-60, 60), { mission: 'flame', y: rnd(6, 12) });
@@ -332,7 +339,7 @@ const STORY = [
     reward: 100000,
     passNote: ctx => (ctx.caught ? 'Booster caught by the tower!' : 'Booster lost in the sea'),
     start(ctx) {
-      ctx.car = keepCar('roadster', places.giga.clone().add(new V3(-8, 0, 13)), Math.PI / 2, ctx);
+      ctx.car = keepCar('roadster', places.gigaCars[0], places.gigaYaw, ctx);
       ctx.f = follow(ctx.car, '#ff4f6a');
       ctx.clean.push(ctx.f.remove);
       bus.objective('Get in the <b>Roadster</b>.');
@@ -649,7 +656,9 @@ const JOBS = [
           let p = at.clone();
           for (let k = 0; k < 8; k++) {
             const a = rnd(0, Math.PI * 2);
-            p = new V3(clamp(p.x + Math.cos(a) * rnd(70, 110), -HALF + 20, HALF - 20), rnd(25, 80), clamp(p.z + Math.sin(a) * rnd(70, 110), -HALF + 20, HALF - 20));
+            p = new V3(clamp(p.x + Math.cos(a) * rnd(90, 140), -HALF + 60, HALF - 60), rnd(30, 90), clamp(p.z + Math.sin(a) * rnd(90, 140), -HALF + 60, HALF - 60));
+            // Never inside a tower: lift the ring over the roof.
+            while (insideSolid(p.x, p.z, p.y, 8)) p.y += 15;
             ctx.rings.push(p.clone());
           }
           ctx.f = follow(ctx.car, '#ff4fa3');

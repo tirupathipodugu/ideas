@@ -1,5 +1,5 @@
 // You: walking, driving, flying, fighting; the camera; dying and starting again; pickups, tunnels, respray.
-import { THREE, V3, scene, camera, G, keys, hit, touch, look, bus, clamp, lerp, rnd, wrapA, damp, collide, onUpdate, solids, IS_MOBILE } from './core.js';
+import { THREE, V3, scene, camera, G, keys, hit, touch, look, bus, clamp, lerp, rnd, wrapA, damp, collide, onUpdate, insideSolid, IS_MOBILE } from './core.js';
 import { places, isLand, followSun, HALF } from './world.js';
 import { vehicles, nearestVehicle, hurtVehicle, fwdVec, rightVec, removeVehicle } from './vehicles.js';
 import { makeHuman, animHuman, peds, hurtPed, setOnFire, panic, spawnPed } from './peds.js';
@@ -15,7 +15,7 @@ export const WEAPONS = [
   { name: 'Flare Gun', icon: '🎇' },
 ];
 
-const me = { pos: places.spawn.clone(), yaw: Math.PI, vy: 0, speed: 0, punch: 0, coolCoil: 0, coolStrike: 0, hurtT: 0, swim: 0, deadT: 0, portalCool: 0, lastHit: 0 };
+const me = { pos: places.spawn.clone(), yaw: places.spawnYaw, vy: 0, speed: 0, punch: 0, coolCoil: 0, coolStrike: 0, hurtT: 0, swim: 0, deadT: 0, portalCool: 0, lastHit: 0 };
 const body = makeHuman({ kind: 'player' });
 G.playerPos = me.pos;
 G.me = me;
@@ -93,9 +93,9 @@ G.busted = () => die('busted');
 const respawn = () => {
   const busted = me.why === 'busted';
   const at = busted ? places.police : places.giga;
-  me.pos.copy(at).add(new V3(rnd(-3, 3), 0, 4));
+  me.pos.copy(at).add(new V3(rnd(-2, 2), 0, rnd(-2, 2)));
   me.vy = 0;
-  me.yaw = 0;
+  me.yaw = places.spawnYaw;
   G.health = 100;
   G.armor = 0;
   G.money = Math.max(0, G.money - (busted ? 500 : 200));
@@ -103,7 +103,7 @@ const respawn = () => {
   G.clearWanted?.();
   G.mode = 'foot';
   body.root.visible = true;
-  look.yaw = 0;
+  look.yaw = places.spawnYaw;
 };
 
 /* ---------------- getting in and out ---------------- */
@@ -359,7 +359,7 @@ const stepFlares = dt => {
         break;
       }
     }
-    const wall = solids.some(s => s.h > f.pos.y && f.pos.x > s.minx && f.pos.x < s.maxx && f.pos.z > s.minz && f.pos.z < s.maxz);
+    const wall = insideSolid(f.pos.x, f.pos.z, f.pos.y);
     if (direct || wall || f.pos.y < 0.15 || f.life <= 0) {
       burstFlare(f, direct);
       flares.splice(i, 1);
@@ -533,33 +533,6 @@ const stepPickups = dt => {
 
 /* ---------------- tunnels, respray, superchargers ---------------- */
 const stepPlaces = dt => {
-  me.portalCool -= dt;
-  const at = G.playerTarget();
-  if (me.portalCool <= 0 && at.y < 3)
-    for (const [a, b] of [['portalA', 'portalB'], ['portalB', 'portalA']]) {
-      const pa = places[a], pb = places[b];
-      if (Math.hypot(at.x - pa.at.x, at.z - pa.at.z) > 3.6) continue;
-      me.portalCool = 3;
-      bus.flash?.('#000', 0.5);
-      sfx.whoosh();
-      const out = pb.out.clone();
-      if (G.mode === 'car') {
-        const v = G.car;
-        const sp = Math.max(12, v.vel.length());
-        v.pos.copy(out);
-        v.yaw = pb.yaw;
-        v.vel.copy(fwdVec(v.yaw, new V3())).multiplyScalar(sp);
-        look.yaw = v.yaw;
-      } else {
-        me.pos.copy(out);
-        me.yaw = pb.yaw;
-        look.yaw = pb.yaw;
-      }
-      G.hide = 8;
-      bus.toast('The Boring Company tunnel');
-      G.onPortal?.();
-      break;
-    }
   if (G.mode === 'car' && G.car) {
     const v = G.car;
     if (v.pos.distanceTo(places.service) < 8 && v.pos.y < 2) {
@@ -732,7 +705,7 @@ const carStep = dt => {
     if (v.spinT >= 1) v.spinT = v.spin = 0;
   }
   if (hit('KeyH')) {
-    sfx.taser();
+    sfx.horn();
     panic(v.pos, 12);
   }
   if (G.weapon === 3 && firePressed()) fireStrike();
@@ -791,11 +764,7 @@ const placeCamera = dt => {
   // Pull in front of buildings that would hide you.
   for (let k = 1; k <= 12; k++) {
     const p = target.clone().lerp(want, k / 12);
-    let blocked = false;
-    for (const s of solids) if (p.y < s.h && p.x > s.minx - 0.4 && p.x < s.maxx + 0.4 && p.z > s.minz - 0.4 && p.z < s.maxz + 0.4) {
-      blocked = true;
-      break;
-    }
+    const blocked = insideSolid(p.x, p.z, p.y, 0.4);
     if (blocked) {
       want.copy(target.clone().lerp(want, (k - 1) / 12));
       break;
@@ -837,12 +806,22 @@ onUpdate(dt => {
   if (G.mode !== 'cutscene') placeCamera(dt);
   followSun(G.playerTarget());
   const v = G.car;
+  // The nearest siren, by distance; tyres squeal when the car slides sideways.
+  let siren = 0;
+  const ear = G.playerTarget();
+  for (const c of vehicles) if (c.siren && !c.dead) siren = Math.max(siren, 1 - c.pos.distanceTo(ear) / 160);
+  const lat = v && !v.flying && v.pos.y < 0.5 ? Math.abs(v.vel.dot(rightVec(v.yaw, new V3()))) : 0;
+  const ride = G.mode === 'cutscene' && G.loopSpeed > 0;
   audioFrame({
-    engine: v ? 1 : 0,
-    rpm: v ? clamp(v.vel.length() / v.spec.max, 0, 1.2) + Math.abs(v.input.throttle) * 0.2 : 0,
+    engine: v || ride ? 1 : 0,
+    rpm: ride ? G.loopSpeed / 42 : v ? clamp(v.vel.length() / v.spec.max, 0, 1.2) + Math.abs(v.input.throttle) * 0.2 : 0,
     fire: me.flaming ? 1 : 0,
-    jet: v && (v.flying || v.input.boost) && v.spec.canFly ? 0.5 + (v.input.boost ? 0.4 : 0) : 0,
-    siren: G.stars > 0 ? clamp(G.stars / 3, 0.3, 1) : 0,
+    jet: v && (v.flying || v.input.boost || v.spinT > 0) && v.spec.canFly ? 0.5 + (v.input.boost || v.spinT > 0 ? 0.4 : 0) : 0,
+    siren,
+    skid: clamp((lat - 3.5) / 6, 0, 1) + (v && v.input.handbrake && v.vel.length() > 6 ? 0.6 : 0),
+    walk: G.mode === 'foot' && me.pos.y < 0.1 ? me.speed : 0,
+    inside: ride ? 1 : 0,
+    electric: 1,
   });
 }, 20);
 

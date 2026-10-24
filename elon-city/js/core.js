@@ -131,9 +131,80 @@ export const canvasTex = (w, h, draw, srgb = true) => {
   return t;
 };
 
-// Physics-free collision: boxes (buildings) and circles (props), on the ground plane.
+// Physics-free collision: boxes and building footprints (polygons) and circles (props), on the ground plane.
 export const solids = [];   // { minx, maxx, minz, maxz, h }
 export const posts = [];    // { x, z, r }
+
+// Building footprints live in a grid of cells so a test only looks at what's nearby.
+const CELL = 24;
+const cells = new Map();
+const NONE = [];
+const ck = (i, j) => (i + 4096) * 8192 + (j + 4096);
+export const polys = [];
+// pts: a flat [x0, z0, x1, z1, ...] ring; h: height of the roof.
+export const addPoly = (pts, h) => {
+  let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    minx = Math.min(minx, pts[i]);
+    maxx = Math.max(maxx, pts[i]);
+    minz = Math.min(minz, pts[i + 1]);
+    maxz = Math.max(maxz, pts[i + 1]);
+  }
+  const s = { pts, h, minx, maxx, minz, maxz, mark: 0 };
+  for (let i = Math.floor(minx / CELL); i <= Math.floor(maxx / CELL); i++)
+    for (let j = Math.floor(minz / CELL); j <= Math.floor(maxz / CELL); j++) {
+      const k = ck(i, j);
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(s);
+    }
+  polys.push(s);
+  return s;
+};
+let stamp = 0;
+const nearPolys = (x, z, r, out) => {
+  stamp++;
+  out.length = 0;
+  for (let i = Math.floor((x - r) / CELL); i <= Math.floor((x + r) / CELL); i++)
+    for (let j = Math.floor((z - r) / CELL); j <= Math.floor((z + r) / CELL); j++)
+      for (const s of cells.get(ck(i, j)) || NONE) {
+        if (s.mark === stamp) continue;
+        s.mark = stamp;
+        if (x < s.minx - r || x > s.maxx + r || z < s.minz - r || z > s.maxz + r) continue;
+        out.push(s);
+      }
+  return out;
+};
+export const inPoly = (pts, x, z) => {
+  let inside = false;
+  for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+    const xi = pts[i], zi = pts[i + 1], xj = pts[j], zj = pts[j + 1];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+};
+// The closest point on a ring's outline.
+const _q = { x: 0, z: 0, d: 0 };
+const nearestOnRing = (pts, x, z) => {
+  _q.d = Infinity;
+  for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+    const ax = pts[j], az = pts[j + 1], vx = pts[i] - ax, vz = pts[i + 1] - az;
+    const t = clamp(((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz || 1e-9), 0, 1);
+    const qx = ax + vx * t, qz = az + vz * t, d = Math.hypot(x - qx, z - qz);
+    if (d < _q.d) {
+      _q.d = d;
+      _q.x = qx;
+      _q.z = qz;
+    }
+  }
+  return _q;
+};
+const _near = [];
+// Is this point inside something solid at height y? (pad grows boxes a little.)
+export const insideSolid = (x, z, y = 0, pad = 0) => {
+  for (const s of solids) if (y < s.h && x > s.minx - pad && x < s.maxx + pad && z > s.minz - pad && z < s.maxz + pad) return true;
+  for (const s of nearPolys(x, z, pad, _near)) if (y < s.h && inPoly(s.pts, x, z)) return true;
+  return false;
+};
 
 // Pushes a circle out of every solid; returns the push normal if it hit.
 const _n = { x: 0, z: 0, hit: false };
@@ -166,6 +237,25 @@ export const collide = (p, r, y = 0) => {
     _n.z = dz;
     _n.hit = true;
   }
+  for (const s of nearPolys(p.x, p.z, r, _near)) {
+    if (s.h < y) continue;
+    const inside = inPoly(s.pts, p.x, p.z);
+    const q = nearestOnRing(s.pts, p.x, p.z);
+    if (!inside && q.d >= r) continue;
+    let dx = p.x - q.x, dz = p.z - q.z;
+    const d = q.d || 1e-4;
+    dx /= d;
+    dz /= d;
+    if (inside) {
+      dx = -dx;
+      dz = -dz;
+    }
+    p.x = q.x + dx * r;
+    p.z = q.z + dz * r;
+    _n.x = dx;
+    _n.z = dz;
+    _n.hit = true;
+  }
   for (const s of posts) {
     if (y > 9) break;
     const dx = p.x - s.x, dz = p.z - s.z, d = Math.hypot(dx, dz), m = r + s.r;
@@ -184,7 +274,7 @@ export const clearLine = (ax, az, bx, bz) => {
   const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / 4);
   for (let i = 1; i < steps; i++) {
     const x = lerp(ax, bx, i / steps), z = lerp(az, bz, i / steps);
-    for (const s of solids) if (s.h > 3 && x > s.minx && x < s.maxx && z > s.minz && z < s.maxz) return false;
+    if (insideSolid(x, z, 3)) return false;
   }
   return true;
 };

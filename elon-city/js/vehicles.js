@@ -3,7 +3,7 @@ import { THREE, V3, scene, G, clamp, lerp, rnd, pick, wrapA, collide, onUpdate, 
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { isLand, nodes, nodeAt, nearestNode, LANE, N } from './world.js';
+import { isLand, nodes, edges, edgePoint, projectEdge, nearestEdge, randomEdgeNear, laneOffset } from './world.js';
 import { burning, explode, sparks, thrust, dust, splash, addShake } from './fx.js';
 import { sfx } from './audio.js';
 
@@ -437,49 +437,87 @@ const bump = dt => {
 
 /* ---------------- traffic AI ---------------- */
 // A car follows lanes between intersections, turning at random, and keeps its distance.
-const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-export const startAI = (v, node) => {
-  const options = dirs.filter(([di, dj]) => nodeAt(node.i + di, node.j + dj));
-  const [di, dj] = pick(options);
-  v.ai = { from: node, to: nodeAt(node.i + di, node.j + dj), di, dj, cruise: rnd(11, 16), angry: 0, wait: 0 };
+// Traffic follows the real street graph: an edge, which way along it, and how far.
+const CRUISE = { motorway: 27, motorway_link: 16, trunk: 20, primary: 15, secondary: 13.5, tertiary: 12, residential: 10, unclassified: 10, service: 6 };
+const _p = {}, _p2 = {};
+const nodeAhead = (e, dir) => nodes[dir > 0 ? e.b : e.a];
+// Pick the next street at a junction: never straight back unless it's a dead end, avoid alleys.
+const chooseNext = (e, dir) => {
+  const nd = nodeAhead(e, dir);
+  let opts = nd.out.filter(o => o.e !== e);
+  const roads = opts.filter(o => o.e.drive);
+  if (roads.length) opts = roads;
+  if (!opts.length) return e.oneway ? null : { e, dir: -dir };
+  // Prefer carrying on roughly straight.
+  edgePoint(e, dir > 0 ? e.len : 0, _p);
+  const hx = _p.dx * dir, hz = _p.dz * dir;
+  const w = opts.map(o => {
+    edgePoint(o.e, o.dir > 0 ? 0 : o.e.len, _p2);
+    const c = hx * _p2.dx * o.dir + hz * _p2.dz * o.dir;
+    return 0.6 + Math.max(0, c) * 1.6;
+  });
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < opts.length; i++) if ((r -= w[i]) <= 0) return opts[i];
+  return opts[0];
+};
+// Put a car on the nearest street, heading the way it already faces if it can.
+export const startAI = v => {
+  const q = nearestEdge(v.pos.x, v.pos.z, e => e.drive, 4) || nearestEdge(v.pos.x, v.pos.z, () => true, 6);
+  if (!q) return;
+  edgePoint(q.e, q.s, _p);
+  let dir = _p.dx * Math.sin(v.yaw) + _p.dz * Math.cos(v.yaw) >= 0 ? 1 : -1;
+  if (q.e.oneway) dir = 1;
+  v.ai = { e: q.e, dir, next: null, cruise: (CRUISE[q.e.c] || 11) * rnd(0.85, 1.1), angry: 0, wait: 0 };
   v.driver = v.driver || 'ai';
 };
-
-const laneTarget = (v, ahead) => {
-  const a = v.ai;
-  const dx = a.di, dz = a.dj;
-  // Right-hand traffic: the lane is offset to the right of the direction of travel, (-dz, dx).
-  const along = (v.pos.x - a.from.x) * dx + (v.pos.z - a.from.z) * dz;
-  const t = along + ahead;
-  return { x: a.from.x + dx * t - dz * LANE, z: a.from.z + dz * t + dx * LANE, along, len: Math.abs(a.to.x - a.from.x) + Math.abs(a.to.z - a.from.z) };
+// Distance travelled along the current edge in the direction of travel.
+const along = (v, e, dir) => {
+  const s = projectEdge(e, v.pos.x, v.pos.z).s;
+  return dir > 0 ? s : e.len - s;
+};
+// A point on the lane, `d` metres along the edge in the direction of travel.
+const lanePoint = (e, dir, d, out) => {
+  edgePoint(e, dir > 0 ? d : e.len - d, out);
+  const fx = out.dx * dir, fz = out.dz * dir, o = laneOffset(e);
+  out.x += -fz * o;
+  out.z += fx * o;
+  out.dx = fx;
+  out.dz = fz;
+  return out;
 };
 
 const driveAI = (v, dt) => {
   const a = v.ai;
-  const lt = laneTarget(v, 9);
-  // Next leg once we reach the intersection.
-  if (lt.along > lt.len - 3) {
-    const back = [-a.di, -a.dj];
-    let options = dirs.filter(([di, dj]) => nodeAt(a.to.i + di, a.to.j + dj) && !(di === back[0] && dj === back[1]));
-    if (!options.length) options = [back];
-    const [di, dj] = pick(options);
-    a.from = a.to;
-    a.to = nodeAt(a.from.i + di, a.from.j + dj);
-    a.di = di;
-    a.dj = dj;
+  let d = along(v, a.e, a.dir);
+  const left = a.e.len - d;
+  if (left < 22 && !a.next) a.next = chooseNext(a.e, a.dir);
+  // Through the junction and onto the next street.
+  if (left < 2.5 && a.next) {
+    a.e = a.next.e;
+    a.dir = a.next.dir;
+    a.next = null;
+    a.cruise = (CRUISE[a.e.c] || 11) * rnd(0.85, 1.1);
+    d = along(v, a.e, a.dir);
   }
-  const want = Math.atan2(lt.x - v.pos.x, lt.z - v.pos.z);
+  const LOOK = 8;
+  let tgt;
+  const rem = a.e.len - d;
+  if (rem < LOOK && a.next) tgt = lanePoint(a.next.e, a.next.dir, LOOK - rem, _p);
+  else tgt = lanePoint(a.e, a.dir, Math.min(a.e.len, d + LOOK), _p);
+  const want = Math.atan2(tgt.x - v.pos.x, tgt.z - v.pos.z);
   const err = wrapA(want - v.yaw);
   v.input.steer = clamp(err * 2.2, -1, 1);
-  // Slow for turns and for anything ahead.
+  // Slow for turns, junctions and anything ahead.
   let target = a.cruise * (Math.abs(err) > 0.4 ? 0.55 : 1);
-  if (lt.len - lt.along < 14) target = Math.min(target, 9);
+  if (a.e.len - d < 16) target = Math.min(target, a.next && a.next.e === a.e ? 4 : 9);
+  if (!a.next && a.e.len - d < 6) target = Math.min(target, 3);
   const fwd = fwdOf(v.yaw, new V3());
   for (const o of vehicles) {
     if (o === v || o.dead) continue;
     const dx = o.pos.x - v.pos.x, dz = o.pos.z - v.pos.z;
+    if (Math.abs(dx) > 16 || Math.abs(dz) > 16) continue;
     const ahead = dx * fwd.x + dz * fwd.z, side = Math.abs(dx * fwd.z - dz * fwd.x);
-    if (ahead > 0 && ahead < 14 && side < 2.6) target = Math.min(target, ahead < 7 ? 0 : 5);
+    if (ahead > 0 && ahead < 14 && side < 2.4) target = Math.min(target, ahead < 7 ? 0 : 5);
   }
   if (G.blocking?.(v, fwd)) target = 0;
   // A passenger asked to get out.
@@ -495,6 +533,8 @@ const driveAI = (v, dt) => {
     v.input.steer = -v.input.steer;
     if (a.wait > 4) a.wait = 0;
   }
+  // Hopelessly lost (shoved off the road): find the street again.
+  if (projectEdge(a.e, v.pos.x, v.pos.z).d > a.e.w + 10) startAI(v);
 };
 
 /* ---------------- streaming traffic around the player ---------------- */
@@ -502,47 +542,39 @@ const TRAFFIC = 20;
 const PARKED = 10;
 const traffic = () => vehicles.filter(v => v.driver === 'ai' && !v.mission);
 const spawnTrafficNear = (p, minR, maxR) => {
-  for (let tries = 0; tries < 20; tries++) {
-    const n = pick(nodes);
-    const d = Math.hypot(n.x - p.x, n.z - p.z);
-    if (d < minR || d > maxR) continue;
-    const r = Math.random();
-    // Lots of driverless Cybercabs: hop in any of them for a ride.
-    const type = r < 0.42 ? 'modely' : r < 0.56 ? 'cybertruck' : r < 0.64 ? 'semi' : r < 0.93 ? 'cybercab' : 'roadster';
-    const v = spawnVehicle(type, n.x, n.z, 0, { driver: 'ai' });
-    startAI(v, n);
-    const lt = laneTarget(v, 0);
-    v.pos.set(lt.x + v.ai.di * 6, 0, lt.z + v.ai.dj * 6);
-    v.yaw = Math.atan2(v.ai.di, v.ai.dj);
-    v.vel.copy(fwdOf(v.yaw, new V3())).multiplyScalar(8);
-    return v;
-  }
+  const e = randomEdgeNear(p, minR, maxR, e => e.drive && e.len > 20);
+  if (!e) return null;
+  const r = Math.random();
+  // Lots of driverless Cybercabs: hop in any of them for a ride.
+  const type = e.c.startsWith('motorway') ? (r < 0.3 ? 'semi' : r < 0.7 ? 'modely' : 'cybertruck') : r < 0.42 ? 'modely' : r < 0.56 ? 'cybertruck' : r < 0.64 ? 'semi' : r < 0.93 ? 'cybercab' : 'roadster';
+  const dir = e.oneway ? 1 : Math.random() < 0.5 ? 1 : -1;
+  const pt = lanePoint(e, dir, rnd(6, e.len - 6), {});
+  if (vehicles.some(o => Math.hypot(o.pos.x - pt.x, o.pos.z - pt.z) < 9)) return null;
+  const v = spawnVehicle(type, pt.x, pt.z, Math.atan2(pt.dx, pt.dz), { driver: 'ai' });
+  v.ai = { e, dir, next: null, cruise: (CRUISE[e.c] || 11) * rnd(0.85, 1.1), angry: 0, wait: 0 };
+  v.vel.copy(fwdOf(v.yaw, new V3())).multiplyScalar(8);
+  return v;
 };
 
 // Cars parked along the curbs, free to take.
 const parked = () => vehicles.filter(v => v.parked && v.driver === null && !v.dead);
 const parkNear = (p, minR, maxR) => {
-  for (let tries = 0; tries < 20; tries++) {
-    const n = pick(nodes);
-    const [di, dj] = pick(dirs);
-    const m = nodeAt(n.i + di, n.j + dj);
-    if (!m) continue;
-    const t = rnd(0.3, 0.7), side = pick([-1, 1]);
-    const x = lerp(n.x, m.x, t) - dj * 7.4 * side, z = lerp(n.z, m.z, t) + di * 7.4 * side;
-    const d = Math.hypot(x - p.x, z - p.z);
-    if (d < minR || d > maxR || !isLand(x, z)) continue;
-    if (vehicles.some(o => Math.hypot(o.pos.x - x, o.pos.z - z) < 7)) continue;
-    const r = Math.random();
-    const type = r < 0.5 ? 'modely' : r < 0.75 ? 'cybertruck' : r < 0.9 ? 'roadster' : 'semi';
-    const v = spawnVehicle(type, x, z, Math.atan2(di, dj) + (side < 0 ? Math.PI : 0));
-    v.parked = true;
-    return v;
-  }
+  const e = randomEdgeNear(p, minR, maxR, e => e.drive && !e.c.startsWith('motorway') && !e.bridge && e.len > 30);
+  if (!e) return null;
+  const pt = edgePoint(e, rnd(0.3, 0.7) * e.len, {});
+  const side = e.oneway ? pick([-1, 1]) : 1, o = side * (e.w / 2 - 1.2);
+  const x = pt.x - pt.dz * o, z = pt.z + pt.dx * o;
+  if (!isLand(x, z) || vehicles.some(o => Math.hypot(o.pos.x - x, o.pos.z - z) < 7)) return null;
+  const r = Math.random();
+  const type = r < 0.5 ? 'modely' : r < 0.75 ? 'cybertruck' : r < 0.9 ? 'roadster' : 'semi';
+  const v = spawnVehicle(type, x, z, Math.atan2(pt.dx, pt.dz) + (side < 0 && !e.oneway ? Math.PI : 0));
+  v.parked = true;
+  return v;
 };
 
 export const fillTraffic = p => {
-  for (let k = 0; k < TRAFFIC; k++) spawnTrafficNear(p, 20, 260);
-  for (let k = 0; k < PARKED; k++) parkNear(p, 15, 200);
+  for (let k = 0; k < TRAFFIC * 2; k++) spawnTrafficNear(p, 20, 260);
+  for (let k = 0; k < PARKED * 2; k++) parkNear(p, 15, 200);
 };
 
 let streamT = 0;
@@ -556,11 +588,12 @@ onUpdate(dt => {
     // Wrecks and abandoned cars far away go too.
     for (const v of [...vehicles])
       if ((v.dead || (v.driver === null && !v.mission && !v.keep)) && Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 300) removeVehicle(v);
-    if (traffic().length < TRAFFIC) spawnTrafficNear(p, 160, 300);
+    if (traffic().length < TRAFFIC) spawnTrafficNear(p, 140, 300);
     if (parked().length < PARKED) parkNear(p, 90, 220);
   }
   for (const v of vehicles) {
-    if (v.driver === 'ai' && v.ai && !v.dead && v.hp > 0) driveAI(v, dt);
+    if (v.inLoop) continue;
+    if (v.driver === 'ai' && v.ai?.e && !v.dead && v.hp > 0) driveAI(v, dt);
     else if (v.driver === null || v.dead || v.hp <= 0) {
       v.input.throttle = 0;
       v.input.steer = 0;

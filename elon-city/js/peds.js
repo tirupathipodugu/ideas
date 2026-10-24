@@ -1,6 +1,6 @@
 // People: one low-poly body shared by pedestrians, police and the player; pedestrians walking the sidewalks.
 import { THREE, V3, scene, G, clamp, rnd, pick, wrapA, collide, onUpdate, damp, bus, clearLine } from './core.js';
-import { N, walkLoop, isLand } from './world.js';
+import { isLand, nodes, edges, edgePoint, nearestEdge, randomEdgeNear, walkOffset } from './world.js';
 import { vehicles, fwdVec } from './vehicles.js';
 import { burning, sparks } from './fx.js';
 import { sfx } from './audio.js';
@@ -42,19 +42,35 @@ export const removePed = p => {
   if (i >= 0) peds.splice(i, 1);
 };
 
-const joinLoop = p => {
-  const i = clamp(Math.floor((p.pos.x + G.cityHALF) / (2 * G.cityHALF / N)), 0, N - 1);
-  const j = clamp(Math.floor((p.pos.z + G.cityHALF) / (2 * G.cityHALF / N)), 0, N - 1);
-  p.loop = walkLoop(i, j);
-  let best = 0, bd = Infinity;
-  p.loop.forEach((q, k) => {
-    const d = q.distanceTo(p.pos);
-    if (d < bd) {
-      bd = d;
-      best = k;
-    }
-  });
-  p.li = best;
+// People walk the sidewalks: along a street on one side, then on round the corner onto another.
+const _w = {};
+const walkAt = (p, out = _w) => {
+  const r = p.route;
+  edgePoint(r.e, r.dir > 0 ? r.s : r.e.len - r.s, out);
+  const fx = out.dx * r.dir, fz = out.dz * r.dir, o = walkOffset(r.e) * r.side;
+  out.x += -fz * o;
+  out.z += fx * o;
+  out.dx = fx;
+  out.dz = fz;
+  return out;
+};
+const joinRoute = p => {
+  const q = nearestEdge(p.pos.x, p.pos.z, () => true, 4);
+  if (!q) return false;
+  edgePoint(q.e, q.s, _w);
+  const dir = _w.dx * Math.sin(p.yaw) + _w.dz * Math.cos(p.yaw) >= 0 ? 1 : -1;
+  const side = (p.pos.x - _w.x) * -_w.dz * dir + (p.pos.z - _w.z) * _w.dx * dir >= 0 ? 1 : -1;
+  p.route = { e: q.e, dir, s: dir > 0 ? q.s : q.e.len - q.s, side };
+  return true;
+};
+const turnCorner = r => {
+  const nd = nodes[r.dir > 0 ? r.e.b : r.e.a];
+  let opts = nd.all.filter(o => o.e !== r.e && !o.e.c.startsWith('motorway'));
+  if (!opts.length) opts = [{ e: r.e, dir: -r.dir }];
+  const o = opts[Math.floor(Math.random() * opts.length)];
+  r.e = o.e;
+  r.dir = o.dir;
+  r.s = Math.min(walkOffset(o.e), o.e.len / 2);
 };
 
 // Hurt a person: fall over, maybe die; the player's crimes raise the heat.
@@ -97,6 +113,7 @@ export const setOnFire = (p, by) => {
 
 // Everyone near something scary runs.
 export const panic = (at, r) => {
+  if (r >= 25) sfx.scream();
   for (const p of peds) if (p.kind === 'civ' && (p.state === 'walk' || p.state === 'wait') && p.pos.distanceTo(at) < r) {
     p.state = 'flee';
     p.t = 0;
@@ -142,7 +159,7 @@ const botStep = (p, dt) => {
   if (p.state !== 'hunt') return null;
   if (d > 60 || G.mode === 'dead' || G.mode === 'cutscene') {
     p.state = 'walk';
-    p.loop = null;
+    p.route = null;
     return null;
   }
   p.yaw += wrapA(Math.atan2(dx, dz) - p.yaw) * Math.min(1, dt * 6);
@@ -171,12 +188,24 @@ const stepPed = (p, dt) => {
     if (p.fire > 6) p.fire = 0;
   }
   if (p.state === 'walk') {
-    if (!p.loop) joinLoop(p);
-    const tgt = p.loop[p.li];
-    const dx = tgt.x - p.pos.x, dz = tgt.z - p.pos.z;
-    if (Math.hypot(dx, dz) < 0.8) p.li = (p.li + p.dir + 4) % 4;
-    p.yaw = damp(p.yaw, p.yaw + wrapA(Math.atan2(dx, dz) - p.yaw), 6, dt);
+    if (!p.route) joinRoute(p);
+    if (p.route) {
+      const r = p.route;
+      r.s += p.speed * dt;
+      if (r.s > r.e.len - Math.min(walkOffset(r.e), r.e.len / 2)) turnCorner(r);
+      const tgt = walkAt(p);
+      const dx = tgt.x - p.pos.x, dz = tgt.z - p.pos.z;
+      // Ease onto the sidewalk line, then follow it exactly.
+      const d = Math.hypot(dx, dz);
+      if (d > 0.05) {
+        const k = Math.min(1, (p.speed * 1.6 * dt) / d);
+        p.pos.x += dx * k;
+        p.pos.z += dz * k;
+      }
+      p.yaw = damp(p.yaw, p.yaw + wrapA(Math.atan2(tgt.dx, tgt.dz) - p.yaw), 6, dt);
+    }
     speed = p.speed;
+    p.glide = true;
     if (Math.random() < 0.0008) {
       p.state = 'wait';
       p.t = 0;
@@ -191,7 +220,7 @@ const stepPed = (p, dt) => {
     if (p.fire <= 0) pose = 'flail';
     if (p.t > 7) {
       p.state = 'walk';
-      p.loop = null;
+      p.route = null;
     }
   } else if (p.state === 'down') {
     pose = 'down';
@@ -221,10 +250,11 @@ const stepPed = (p, dt) => {
     if (r) ({ speed, pose } = r);
   }
 
-  if (speed > 0 && p.state !== 'down' && p.state !== 'dead') {
+  if (speed > 0 && p.state !== 'down' && p.state !== 'dead' && !p.glide) {
     p.pos.x += Math.sin(p.yaw) * speed * dt;
     p.pos.z += Math.cos(p.yaw) * speed * dt;
   }
+  p.glide = false;
   collide(p.pos, 0.35);
   if (!isLand(p.pos.x, p.pos.z)) p.pos.y = Math.max(-1.4, p.pos.y - dt);
 
@@ -265,18 +295,17 @@ onUpdate(dt => {
     const civ = peds.filter(p => p.kind === 'civ').length;
     const bots = peds.filter(p => p.kind === 'bot' && p.state !== 'dead').length;
     const wantBot = bots < MAX_BOTS && G.t > 25;
-    if (civ < MAX_PEDS || wantBot) {
-      const i = clamp(Math.floor((me.x + G.cityHALF) / (2 * G.cityHALF / N)) + Math.floor(rnd(-2, 3)), 0, N - 1);
-      const j = clamp(Math.floor((me.z + G.cityHALF) / (2 * G.cityHALF / N)) + Math.floor(rnd(-2, 3)), 0, N - 1);
-      const loop = walkLoop(i, j);
-      const a = Math.floor(rnd(0, 4)), t = Math.random();
-      const q = loop[a].clone().lerp(loop[(a + 1) % 4], t);
-      if (q.distanceTo(me) > 35 || !G.started) {
-        const bot = wantBot && (civ >= MAX_PEDS || Math.random() < 0.3) && q.distanceTo(me) > 50;
-        const p = spawnPed(q.x, q.z, bot ? { kind: 'bot', hp: 70 } : {});
-        p.loop = loop;
-        p.li = (a + 1) % 4;
-        p.dir = 1;
+    for (let k = 0; k < 3 && (peds.filter(p => p.kind === 'civ').length < MAX_PEDS || wantBot); k++) {
+      const e = randomEdgeNear(me, 25, 150, e => !e.c.startsWith('motorway') && !e.bridge && e.len > 12);
+      if (e) {
+        const route = { e, dir: Math.random() < 0.5 ? 1 : -1, s: rnd(2, e.len - 2), side: Math.random() < 0.5 ? 1 : -1 };
+        const q = walkAt({ route }, {});
+        if (Math.hypot(q.x - me.x, q.z - me.z) > 30 && isLand(q.x, q.z)) {
+          const bot = wantBot && (civ >= MAX_PEDS || Math.random() < 0.3) && Math.hypot(q.x - me.x, q.z - me.z) > 50;
+          const p = spawnPed(q.x, q.z, bot ? { kind: 'bot', hp: 70 } : {});
+          p.route = route;
+          p.yaw = Math.atan2(q.dx, q.dz);
+        }
       }
     }
   }
