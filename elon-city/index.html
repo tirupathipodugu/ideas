@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Elon City</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%9A%80%3C/text%3E%3C/svg%3E">
+<meta name="description" content="Elon City: an open-world parody game in your browser. Steal any car, fly the Roadster, wield the Not-a-Flamethrower, call Starlink strikes, outrun ElonPD and catch a Starship booster.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&family=Saira+Condensed:wght@500;700;900&display=swap">
+<style>
+:root{
+  --pink:#ff4fa3; --cyan:#3fe3f0; --gold:#ffd23c; --ink:#fff; --shadow:0 2px 0 #000,0 0 12px rgba(0,0,0,.6);
+  --ui:"Saira Condensed","Arial Narrow",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#140a1e;color:var(--ink);font-family:var(--ui);-webkit-user-select:none;user-select:none;touch-action:none}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block}
+button{font:inherit;color:inherit;cursor:pointer}
+.hud{position:fixed;inset:0;pointer-events:none;display:none}
+body.playing .hud{display:block}
+
+/* top right: money, weapon, health, stars (GTA layout) */
+.tr{position:absolute;top:calc(12px + env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right));display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-shadow:var(--shadow)}
+.weap{display:flex;align-items:center;gap:10px}
+#wIcon{font-size:2.1rem;line-height:1;width:58px;height:58px;display:grid;place-items:center;border-radius:50%;background:rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.25)}
+.wtext{text-align:right}
+#wName{font-weight:700;font-size:.95rem;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+#wAmmo{font-weight:900;font-size:1.3rem}
+#money{font:900 2.2rem/1 var(--ui);color:#7dff8a;letter-spacing:.04em}
+.bars{display:flex;flex-direction:column;gap:4px;width:180px}
+.bar{height:9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35)}
+.bar i{display:block;height:100%;background:#ff3b5c;transition:width .2s}
+#ar{background:#7fb7ff}
+#stars{display:flex;gap:3px;font-size:1.5rem;line-height:1}
+#stars span{color:rgba(255,255,255,.18);text-shadow:none}
+#stars span.on{color:#fff;text-shadow:0 0 8px #fff,0 2px 0 #000}
+
+/* bottom left: minimap and radio */
+.bl{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom))}
+#mini{width:170px;height:170px;border-radius:50%;border:3px solid rgba(255,255,255,.85);box-shadow:0 4px 18px rgba(0,0,0,.5);display:block;background:#1b6f8f}
+#radio{margin-top:6px;font-weight:700;font-size:.85rem;color:var(--cyan);text-shadow:var(--shadow);letter-spacing:.05em}
+/* bottom right: vehicle */
+.veh{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));text-align:right;display:none;text-shadow:var(--shadow)}
+body.driving .veh{display:block}
+#veh{font-family:Pacifico,cursive;font-size:1.5rem;color:var(--pink)}
+#speed{font:900 1.6rem/1 var(--ui)}
+.vbar{width:140px;height:6px;margin:6px 0 0 auto;background:rgba(0,0,0,.5)}
+#vhp{display:block;height:100%;background:var(--gold)}
+
+/* centre: objective, timer, big messages, toasts */
+#obj{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(640px,calc(100vw - 420px));text-align:center;font-size:1.15rem;font-weight:500;text-shadow:var(--shadow);opacity:0;transition:opacity .3s;line-height:1.3}
+#obj b{color:var(--gold)}
+#obj.on{opacity:1}
+#timer{position:absolute;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);font:900 2rem/1 var(--ui);text-shadow:var(--shadow);display:none}
+#timer.on{display:block}
+#timer.low{color:#ff3b5c}
+#big{position:absolute;top:28%;left:0;right:0;text-align:center;opacity:0;transition:opacity .4s;padding:0 16px}
+#big.on{opacity:1}
+#big b{display:block;font:400 clamp(2rem,6vw,4.4rem)/1.1 Pacifico,cursive;text-shadow:0 3px 0 #000,0 0 30px rgba(0,0,0,.7)}
+#big span{display:block;margin-top:8px;font-size:clamp(1rem,2.4vw,1.35rem);text-shadow:var(--shadow);font-weight:500}
+#toast{position:absolute;top:calc(64px + env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left));max-width:min(340px,60vw);background:rgba(10,6,18,.78);border-left:4px solid var(--pink);padding:10px 14px;font-size:1rem;font-weight:500;opacity:0;transform:translateX(-10px);transition:opacity .25s,transform .25s}
+#toast.on{opacity:1;transform:none}
+#hurt{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 160px rgba(255,0,40,.9);opacity:0;transition:opacity .35s}
+#fade{position:fixed;inset:0;pointer-events:none;background:#000;opacity:0}
+.cross{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.5);opacity:.75}
+body.driving .cross{display:none}
+.topbtns{position:absolute;top:calc(12px + env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left));display:flex;gap:6px;pointer-events:auto}
+.topbtns button{background:rgba(10,6,18,.65);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:6px 12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.85rem}
+
+/* touch controls */
+.touchui{display:none}
+body.touch.playing .touchui{display:block}
+#stick{position:fixed;width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);opacity:0;pointer-events:none}
+#stick.on{opacity:1}
+#knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.5)}
+.tpad{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:calc(100px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,64px);gap:8px;pointer-events:auto}
+.tbtn{width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,.4);background:rgba(10,6,18,.55);font-weight:900;font-size:.78rem;letter-spacing:.04em;display:grid;place-items:center;touch-action:none}
+.tbtn.held{background:var(--pink);border-color:var(--pink)}
+.tbtn.fire{width:76px;height:76px;background:rgba(255,79,163,.35)}
+.tbtn[data-k=fly],.tbtn[data-k=up],.tbtn[data-k=down]{display:none}
+body.canfly .tbtn[data-k=fly],body.canfly .tbtn[data-k=up],body.canfly .tbtn[data-k=down]{display:grid}
+body.touch .bl{bottom:auto;top:calc(110px + env(safe-area-inset-top))}
+body.touch #mini{width:120px;height:120px}
+body.touch .veh{bottom:auto;top:calc(170px + env(safe-area-inset-top))}
+body.touch #obj{bottom:auto;top:calc(76px + env(safe-area-inset-top));max-width:calc(100vw - 220px)}
+body.touch .cross{display:none}
+
+/* screens */
+.screen{position:fixed;inset:0;display:grid;place-items:center;padding:24px 16px;background:linear-gradient(180deg,rgba(25,10,40,.35),rgba(25,10,40,.85));overflow:auto}
+.screen[hidden]{display:none}
+.card{max-width:640px;width:100%;text-align:center}
+.logo{font:400 clamp(3.2rem,12vw,6.4rem)/1 Pacifico,cursive;color:var(--pink);text-shadow:0 0 18px rgba(255,79,163,.8),0 4px 0 #2a0a24;transform:rotate(-6deg);margin:0 0 6px}
+.logo small{display:block;font:900 clamp(1rem,3.4vw,1.4rem)/1 var(--ui);color:var(--cyan);letter-spacing:.5em;transform:rotate(6deg);margin-top:10px;text-shadow:0 0 12px rgba(63,227,240,.8)}
+.tag{font-size:1.15rem;opacity:.9;margin:20px auto 18px;max-width:520px;line-height:1.4}
+.load{height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden;max-width:320px;margin:0 auto 6px}
+#loadBar{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--pink),var(--cyan))}
+#loadText{font-size:.85rem;opacity:.7;margin-bottom:16px}
+.big-btn{background:var(--pink);border:0;border-radius:999px;padding:14px 46px;font-weight:900;font-size:1.3rem;letter-spacing:.12em;text-transform:uppercase;box-shadow:0 6px 24px rgba(255,79,163,.5)}
+.big-btn:disabled{opacity:.5;cursor:wait}
+.ghost{background:transparent;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:10px 26px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:10px 4px 0}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 18px;text-align:left;margin:24px auto 8px;max-width:560px;font-size:.95rem;opacity:.9}
+.keys kbd{display:inline-block;min-width:24px;padding:1px 6px;margin-right:6px;border-radius:5px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);font:700 .8rem var(--ui);text-align:center}
+body.touch .keys{display:none}
+.tkeys{display:none;margin:20px auto 0;max-width:420px;opacity:.85;font-size:.95rem;line-height:1.5}
+body.touch .tkeys{display:block}
+.credit{font-size:.75rem;opacity:.55;margin-top:22px;line-height:1.5}
+.credit a{color:inherit}
+#bigmap{position:fixed;inset:0;display:grid;place-items:center;background:rgba(10,6,18,.75);pointer-events:auto}
+#bigmap[hidden]{display:none}
+#bigCanvas{border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+@media (max-width:640px){
+  .bars{width:130px}
+  #money{font-size:1.6rem}
+  #wIcon{width:46px;height:46px;font-size:1.6rem}
+}
+</style>
+
+<canvas id="stage"></canvas>
+
+<div class="hud">
+  <div class="topbtns"><button id="menuBtn">II</button><button id="mapBtn">Map</button><button id="jobBtn">Job</button></div>
+  <div class="tr">
+    <div class="weap"><div class="wtext"><div id="wName">Fists</div><div id="wAmmo"></div></div><div id="wIcon">✊</div></div>
+    <div id="money">$00000420</div>
+    <div class="bars"><div class="bar"><i id="hp" style="width:100%"></i></div><div class="bar"><i id="ar" style="width:0"></i></div></div>
+    <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+  </div>
+  <div class="bl"><canvas id="mini" width="340" height="340"></canvas><div id="radio"></div></div>
+  <div class="veh"><div id="veh"></div><div id="speed"></div><div class="vbar"><i id="vhp" style="width:100%"></i></div></div>
+  <div id="timer"></div>
+  <div id="obj"></div>
+  <div id="big"></div>
+  <div id="toast"></div>
+  <div class="cross"></div>
+  <div class="touchui">
+    <div id="stick"><div id="knob"></div></div>
+    <div class="tpad">
+      <button class="tbtn" data-k="fly">FLY</button>
+      <button class="tbtn" data-k="up">UP</button>
+      <button class="tbtn" data-k="enter">ENTER</button>
+      <button class="tbtn" data-k="down">DOWN</button>
+      <button class="tbtn" data-k="jump">JUMP</button>
+      <button class="tbtn" data-k="boost">BOOST</button>
+      <button class="tbtn" data-k="swap" id="swapBtn">WEAPON</button>
+      <button class="tbtn fire" data-k="fire">FIRE</button>
+      <button class="tbtn" data-k="radio" id="radioTouch">RADIO</button>
+    </div>
+  </div>
+</div>
+<div id="hurt"></div>
+<div id="fade"></div>
+
+<div id="bigmap" hidden><canvas id="bigCanvas"></canvas></div>
+
+<div class="screen" id="start">
+  <div class="card">
+    <h1 class="logo">Elon City<small>OPEN WORLD</small></h1>
+    <p class="tag">Steal any car. Fly the Roadster over the rooftops. Torch rogue drones with the Not-a-Flamethrower, call down Starlink, outrun ElonPD, haul freight in the Semi, and catch a Starship booster with the tower. It never ends.</p>
+    <div class="load"><i id="loadBar"></i></div>
+    <div id="loadText">Loading the cars…</div>
+    <button class="big-btn" id="play" disabled>Loading</button><br>
+    <button class="ghost" id="newGame" hidden>New game</button>
+    <div class="keys">
+      <div><kbd>W A S D</kbd>move / drive</div>
+      <div><kbd>Mouse</kbd>look · <kbd>Click</kbd>fire</div>
+      <div><kbd>E</kbd>get in / out of any car</div>
+      <div><kbd>Shift</kbd>run / boost</div>
+      <div><kbd>Space</kbd>jump / handbrake / fly up</div>
+      <div><kbd>G</kbd>Roadster flight · <kbd>C</kbd>down</div>
+      <div><kbd>Q</kbd><kbd>1-4</kbd>weapons</div>
+      <div><kbd>R</kbd>radio · <kbd>H</kbd>horn</div>
+      <div><kbd>M</kbd>map · <kbd>J</kbd>job · <kbd>V</kbd>camera</div>
+      <div><kbd>P</kbd>pause</div>
+    </div>
+    <div class="tkeys">Left thumb moves. Drag on the right to look. Buttons on the right: enter cars, fire, boost, weapons, and FLY in the Roadster.</div>
+    <p class="credit">A parody. Not affiliated with Tesla, SpaceX, Starlink, The Boring Company, X or Rockstar Games.<br>Car models (CC BY 4.0): <a href="https://sketchfab.com/3d-models/tesla-roadster-2020-1fbf29e297bd4a17ac39a00a378441d8" target="_blank" rel="noopener">Tesla Roadster 2020</a> by metarex.4d · Cybertruck by Arion Digital · Model Y by tonielpro520 · Tesla Semi by Oleksii Rozumnyi. Music and sound are generated in your browser.</p>
+  </div>
+</div>
+
+<div class="screen" id="pause" hidden>
+  <div class="card">
+    <h1 class="logo" style="font-size:3.2rem">Paused</h1>
+    <p class="tag" id="pStory"></p>
+    <button class="big-btn" id="resume">Resume</button><br>
+    <button class="ghost" id="soundBtn">Sound: on</button>
+    <button class="ghost" id="radioBtn">Radio: change</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="js/main.js"></script>
+</html>
