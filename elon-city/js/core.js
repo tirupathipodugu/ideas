@@ -23,7 +23,7 @@ export const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_MOBILE,
 renderer.setPixelRatio(Math.min(devicePixelRatio, IS_MOBILE ? 1.25 : 1.5));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.toneMapping = THREE.AgXToneMapping;
-renderer.toneMappingExposure = 0.85;
+renderer.toneMappingExposure = 0.75;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -34,7 +34,7 @@ camera.position.set(0, 20, 30);
 // Multisampled so edges stay smooth through the post effects.
 export const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { samples: IS_MOBILE ? 2 : 4, type: THREE.HalfFloatType }));
 composer.addPass(new RenderPass(scene, camera));
-export const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.45, 0.45, 0.93);
+export const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.2, 0.4, 1.3);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 // A light grade: a touch more contrast and warmth, and a vignette.

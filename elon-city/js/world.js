@@ -47,7 +47,7 @@ camera.updateProjectionMatrix();
 
 const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x4a4038, 0.25);
 scene.add(hemi);
-export const sun = new THREE.DirectionalLight(0xffdcc0, 2.4);
+export const sun = new THREE.DirectionalLight(0xffdcc0, 1.9);
 const sunDir = new V3(-0.8, 0.22, 0.4).normalize();
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -81,7 +81,7 @@ export const skyReady = new RGBELoader().loadAsync('assets/sky.hdr').then(tex =>
   if (sunDir.y < 0.1) sunDir.y = 0.1;
   sunDir.normalize();
   scene.background = tex;
-  scene.backgroundIntensity = 1;
+  scene.backgroundIntensity = 0.7;
   scene.backgroundBlurriness = 0.0;
   const pm = new THREE.PMREMGenerator(renderer);
   scene.environment = pm.fromEquirectangular(tex).texture;
@@ -559,7 +559,7 @@ wallMat.onBeforeCompile = sh => {
         diffuseColor.rgb += vec3(0.91, 0.61, 0.41) * 0.035 * smoothstep(14.0, 30.0, vW.y) * (1.0 - smoothstep(40.0, 75.0, vW.y));
       }`)
     .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-      roughnessFactor = mix(roughnessFactor, 0.05, glassK);
+      roughnessFactor = mix(roughnessFactor, 0.14, glassK);
       roughnessFactor = mix(roughnessFactor, 0.4, fac.y * isGlassWall);`)
     .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
       metalnessFactor = glassK * 0.92 + fac.y * isGlassWall * 0.6;`)
