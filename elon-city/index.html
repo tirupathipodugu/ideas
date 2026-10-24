@@ -69,18 +69,31 @@ body.driving .cross{display:none}
 .topbtns{position:absolute;top:calc(12px + env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left));display:flex;gap:6px;pointer-events:auto}
 .topbtns button{background:rgba(10,6,18,.65);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:6px 12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.85rem}
 
+/* left: the controls for what you're doing right now */
+#ctrls{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:calc(232px + env(safe-area-inset-bottom));background:linear-gradient(90deg,rgba(10,6,18,.72),rgba(10,6,18,.35));border-left:3px solid var(--cyan);border-radius:0 12px 12px 0;padding:10px 14px 10px 12px;display:flex;flex-direction:column;gap:5px;font-size:.92rem;font-weight:500;text-shadow:0 1px 0 #000;min-width:190px;transition:opacity .3s}
+#ctrls:empty{display:none}
+#ctrls h4{margin:0 0 3px;font:700 .78rem var(--ui);letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)}
+#ctrls div{display:flex;align-items:center;gap:8px;white-space:nowrap}
+#ctrls kbd{display:inline-block;min-width:30px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-bottom-width:3px;font:700 .8rem var(--ui);text-align:center;color:#fff}
+body.touch #ctrls{top:calc(110px + env(safe-area-inset-top));bottom:auto;left:calc(150px + env(safe-area-inset-left));font-size:.74rem;min-width:0;padding:6px 10px;gap:3px}
+body.touch #ctrls kbd{font-size:.68rem;min-width:0;padding:1px 5px}
+@media (max-height:500px){body.touch #ctrls{top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);flex-direction:row;flex-wrap:wrap;max-width:46vw;border-left:0;border-radius:10px}body.touch #ctrls h4{display:none}}
+
 /* touch controls */
 .touchui{display:none}
 body.touch.playing .touchui{display:block}
-#stick{position:fixed;width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);opacity:0;pointer-events:none}
+#stick{position:fixed;left:calc(36px + env(safe-area-inset-left));top:calc(100% - 170px - env(safe-area-inset-bottom));width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);opacity:.45;pointer-events:none}
 #stick.on{opacity:1}
+#stick::after{content:'MOVE';position:absolute;left:0;right:0;bottom:-20px;text-align:center;font:700 .7rem var(--ui);letter-spacing:.15em;opacity:.8}
+body.driving #stick::after{content:'STEER \00B7  GAS \00B7  BRAKE'}
 #knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.5)}
 .tpad{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:calc(100px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,64px);gap:8px;pointer-events:auto}
 .tbtn{width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,.4);background:rgba(10,6,18,.55);font-weight:900;font-size:.78rem;letter-spacing:.04em;display:grid;place-items:center;touch-action:none}
 .tbtn.held{background:var(--pink);border-color:var(--pink)}
 .tbtn.fire{width:76px;height:76px;background:rgba(255,79,163,.35)}
-.tbtn[data-k=fly],.tbtn[data-k=up],.tbtn[data-k=down]{display:none}
+.tbtn[data-k=fly],.tbtn[data-k=up],.tbtn[data-k=down],.tbtn[data-k=stunt]{display:none}
 body.canfly .tbtn[data-k=fly],body.canfly .tbtn[data-k=up],body.canfly .tbtn[data-k=down]{display:grid}
+body.roadster .tbtn[data-k=stunt]{display:grid}
 body.touch .bl{bottom:auto;top:calc(110px + env(safe-area-inset-top))}
 body.touch #mini{width:120px;height:120px}
 body.touch .veh{bottom:auto;top:calc(170px + env(safe-area-inset-top))}
@@ -134,9 +147,11 @@ body.touch .tkeys{display:block}
   <div id="big"></div>
   <div id="toast"></div>
   <div class="cross"></div>
+  <div id="ctrls"></div>
   <div class="touchui">
     <div id="stick"><div id="knob"></div></div>
     <div class="tpad">
+      <button class="tbtn" data-k="stunt">ROLL</button>
       <button class="tbtn" data-k="fly">FLY</button>
       <button class="tbtn" data-k="up">UP</button>
       <button class="tbtn" data-k="enter">ENTER</button>

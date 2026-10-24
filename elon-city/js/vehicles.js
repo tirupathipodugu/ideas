@@ -391,7 +391,7 @@ const physics = (v, dt) => {
   v.pitch = damp(v.pitch, clamp((v.vel.length() - before) * 0.4, -0.06, 0.06) + (v.flying ? -inp.throttle * 0.08 : 0), 6, dt);
   v.root.position.copy(v.pos);
   v.root.rotation.set(0, v.yaw, 0);
-  v.body.rotation.set(v.pitch, 0, v.roll, 'YXZ');
+  v.body.rotation.set(v.pitch, 0, v.roll + (v.spin || 0), 'YXZ');
   if (v.flying) v.root.position.y += Math.sin(G.t * 3 + v.born) * 0.08;
 };
 

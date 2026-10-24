@@ -60,6 +60,7 @@ bus.vehicle = v => {
   $('veh').textContent = v ? v.name : '';
   document.body.classList.toggle('driving', !!v);
   document.body.classList.toggle('canfly', !!v?.spec.canFly || (!!v && G.ride === v));
+  document.body.classList.toggle('roadster', !!v?.spec.canFly && G.ride !== v);
   // In a Robotaxi the FLY button takes the wheel instead.
   const fly = document.querySelector('.tbtn[data-k=fly]');
   if (fly) fly.textContent = v && G.ride === v ? 'DRIVE' : 'FLY';
@@ -251,7 +252,35 @@ export const toggleMap = on => {
 
 /* ---------------- per-frame ---------------- */
 let lastMoney = G.money, shownMoney = G.money;
+/* ---------------- the controls panel on the left ---------------- */
+const controlRows = () => {
+  const v = G.car, m = IS_MOBILE;
+  if (G.mode === 'car' && v && G.ride === v)
+    return ['Robotaxi', m ? [['ENTER', 'stop & get out'], ['DRIVE', 'take the wheel'], ['FIRE', 'shoot from the window'], ['RADIO', 'change station']] : [['F', 'stop & get out'], ['T', 'take the wheel'], ['Mouse', 'look around'], ['Click', 'shoot'], ['R', 'radio']]];
+  if (G.mode === 'car' && v) {
+    const rows = m
+      ? [['Stick', 'steer · gas · brake'], ['BOOST', 'boost'], ['JUMP', 'handbrake'], ['ENTER', 'get out']]
+      : [['W', 'gas'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'boost'], ['Space', v.flying ? 'fly up' : 'handbrake'], ['F', 'get out'], ['H', 'horn'], ['R', 'radio'], ['V', 'camera']];
+    if (v.spec.canFly) rows.push(...(m ? [['FLY', v.flying ? 'land' : 'fly'], ['UP DOWN', 'climb · descend'], ['ROLL', 'thruster hop + barrel roll']] : [['G', v.flying ? 'land' : 'fly'], ['C', 'descend'], ['B', 'thruster hop + barrel roll']]));
+    if (G.weapons[3] || G.weapons[4]) rows.push(m ? ['FIRE', 'Starlink / flare'] : ['Click', 'Starlink strike / flare']);
+    return [v.name, rows];
+  }
+  if (G.mode === 'foot')
+    return ['On foot', m ? [['Stick', 'walk / run'], ['ENTER', 'take a car · ride a Robotaxi'], ['FIRE', 'attack'], ['WEAPON', 'switch weapon'], ['JUMP', 'jump']] : [['WASD', 'move'], ['Shift', 'run'], ['F', 'take any car · ride a Robotaxi'], ['Click', 'fire'], ['Q 1-5', 'weapons'], ['Space', 'jump'], ['M', 'map'], ['J', 'job']]];
+  return null;
+};
+let ctrlT = 0, ctrlHTML = '';
+const ctrlFrame = dt => {
+  ctrlT -= dt;
+  if (ctrlT > 0) return;
+  ctrlT = 0.2;
+  const c = controlRows();
+  const html = c ? `<h4>${c[0]}</h4>` + c[1].map(([k, t]) => `<div>${k.split(' ').map(x => `<kbd>${x}</kbd>`).join('')}<span>${t}</span></div>`).join('') : '';
+  if (html !== ctrlHTML) $('ctrls').innerHTML = ctrlHTML = html;
+};
+
 export const hudFrame = dt => {
+  ctrlFrame(dt);
   bigT -= dt;
   if (bigT <= 0) $('big').classList.remove('on');
   shownMoney += (G.money - shownMoney) * Math.min(1, dt * 6);
@@ -326,6 +355,7 @@ const endTouch = e => {
       touch.x = touch.y = 0;
       knob.style.transform = '';
       stick.classList.remove('on');
+      stick.style.left = stick.style.top = '';
     }
     if (t.identifier === lookId) lookId = null;
   }

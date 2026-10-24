@@ -4,7 +4,7 @@ import { places, isLand, followSun, HALF } from './world.js';
 import { vehicles, nearestVehicle, hurtVehicle, fwdVec, rightVec, removeVehicle } from './vehicles.js';
 import { makeHuman, animHuman, peds, hurtPed, setOnFire, panic, spawnPed } from './peds.js';
 import { drones, hurtDrone } from './drones.js';
-import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust, flareTrail } from './fx.js';
+import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust, flareTrail, thrust } from './fx.js';
 import { sfx, audioFrame, nextStation } from './audio.js';
 
 export const WEAPONS = [
@@ -715,6 +715,21 @@ const carStep = dt => {
       bus.toast('Flight mode: Space up, C down, G to land');
       G.onFly?.(v);
     } else bus.toast('Thrusters off');
+  }
+  // 2026 Roadster: cold-gas thrusters kick it off the ground into a barrel roll.
+  if ((hit('KeyB') || touch.stuntPressed) && v.spec.canFly && !v.dead && !(v.spinT > 0)) {
+    if (v.pos.y < 0.3 || v.flying) v.vy = Math.max(v.vy, v.flying ? 4 : 9.5);
+    v.spinT = 0.001;
+    v.spinDir = inp.steer < -0.2 ? -1 : 1;
+    sfx.whoosh();
+    addShake(0.3);
+  }
+  if (v.spinT > 0) {
+    v.spinT += dt / 0.95;
+    const k = Math.min(1, v.spinT);
+    v.spin = v.spinDir * Math.PI * 2 * (k * k * (3 - 2 * k));
+    for (const j of v.jets || []) thrust(j.getWorldPosition(new V3()), new V3(0, -1, 0), 0.8, 0xdfefff);
+    if (v.spinT >= 1) v.spinT = v.spin = 0;
   }
   if (hit('KeyH')) {
     sfx.taser();

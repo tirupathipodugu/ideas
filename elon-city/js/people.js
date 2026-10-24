@@ -51,6 +51,38 @@ const LOOKS = {
   bot: { model: 'xbot', optimus: true, rogue: true },
 };
 
+const OPT = {
+  shell: new THREE.MeshPhysicalMaterial({ color: 0xf3f4f6, roughness: 0.22, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.08 }),
+  joint: new THREE.MeshPhysicalMaterial({ color: 0x1a1b1f, roughness: 0.35, metalness: 0.75, clearcoat: 0.5 }),
+  rogueShell: new THREE.MeshPhysicalMaterial({ color: 0x2c2f35, roughness: 0.3, metalness: 0.6, clearcoat: 1, clearcoatRoughness: 0.15 }),
+  rogueJoint: new THREE.MeshStandardMaterial({ color: 0x3a0508, emissive: 0xff1830, emissiveIntensity: 2.4, roughness: 0.4 }),
+  visor: new THREE.MeshPhysicalMaterial({ color: 0x050608, roughness: 0.05, metalness: 0.9, clearcoat: 1, clearcoatRoughness: 0.02 }),
+  eyes: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2030).multiplyScalar(3), toneMapped: false }),
+};
+const visorGeo = new THREE.SphereGeometry(1, 24, 16);
+const eyesGeo = new THREE.BoxGeometry(1, 1, 1);
+// Optimus' glossy black face plate, on the head bone (in metres, whatever the bone's scale).
+const addFace = (model, rogue) => {
+  let head = null;
+  model.traverse(o => o.isBone && /Head$/.test(o.name) && (head = o));
+  if (!head) return;
+  model.updateMatrixWorld(true);
+  const k = 1 / head.getWorldScale(new THREE.Vector3()).x;
+  const face = new THREE.Group();
+  face.scale.setScalar(k);
+  const visor = new THREE.Mesh(visorGeo, OPT.visor);
+  visor.scale.set(0.085, 0.1, 0.05);
+  visor.position.set(0, 0.095, 0.075);
+  face.add(visor);
+  if (rogue) {
+    const eyes = new THREE.Mesh(eyesGeo, OPT.eyes);
+    eyes.scale.set(0.11, 0.014, 0.01);
+    eyes.position.set(0, 0.105, 0.122);
+    face.add(eyes);
+  }
+  head.add(face);
+};
+
 const dress = h => {
   const look = typeof LOOKS[h.kind] === 'function' ? LOOKS[h.kind]() : LOOKS[h.kind] || LOOKS.civ();
   const L = lib[look.model];
@@ -59,6 +91,9 @@ const dress = h => {
   // Stand them up at a real height, feet on the ground.
   // Mixamo characters come in at real size (centimetres scaled by 0.01).
   model.scale.multiplyScalar(look.model === 'xbot' ? rnd(1.0, 1.04) : rnd(0.95, 1.05));
+  // The Soldier is modelled facing -Z; everyone else faces +Z, the way they walk.
+  model.rotation.order = 'YXZ';
+  if (look.model === 'soldier') model.rotation.y = Math.PI;
   model.traverse(o => {
     if (!o.isMesh) return;
     o.castShadow = true;
@@ -66,24 +101,18 @@ const dress = h => {
     o.material = o.material.clone();
     if (look.tint) o.material.color = new THREE.Color(look.tint);
     if (look.optimus) {
-      // Tesla bot: white shell, black joints.
+      // Tesla bot: glossy white shell over satin black joints; rogue ones are gunmetal with red-hot joints.
       const joint = /joint/i.test(o.material.name);
-      o.material.color = new THREE.Color(joint ? 0x16171a : 0xf2f3f5);
-      o.material.metalness = joint ? 0.6 : 0.25;
-      o.material.roughness = joint ? 0.4 : 0.25;
-      if (look.rogue) {
-        o.material.color = new THREE.Color(joint ? 0x400608 : 0x2b2d31);
-        if (joint) {
-          o.material.emissive = new THREE.Color(0xff1830);
-          o.material.emissiveIntensity = 2.2;
-        }
-      }
+      o.material = joint ? OPT.joint : look.rogue ? OPT.rogueShell : OPT.shell;
+      if (joint && look.rogue) o.material = OPT.rogueJoint;
     }
     if (o.material.map) o.material.map.anisotropy = 4;
   });
   for (const c of [...h.root.children]) h.root.remove(c);
   h.root.add(model);
+  if (look.optimus) addFace(model, look.rogue);
   h.model = model;
+  h.look = look.model;
   h.mixer = new THREE.AnimationMixer(model);
   h.actions = {};
   for (const [k, c] of Object.entries(L.clips)) {
