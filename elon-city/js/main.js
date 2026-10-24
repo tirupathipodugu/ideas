@@ -11,6 +11,7 @@ import './drones.js';
 import { player } from './player.js';
 import './police.js';
 import './loop.js';
+import './rocket.js';
 import { load, save, resetSave, jobNow, storyProgress } from './missions.js';
 import { hudFrame, clearTouchPresses, toggleMap } from './hud.js';
 
@@ -50,11 +51,12 @@ const begin = fresh => {
   spawnVehicle('modely', c[5].x, c[5].z, y);
   fillTraffic(player.pos);
   G.refreshJobs();
+  G.weapon = 4;
   bus.weapon();
   look.yaw = places.spawnYaw;
   player.yaw = places.spawnYaw;
   look.pitch = 0.22;
-  bus.big('ELON CITY', G.done.length ? `Welcome back. Story ${storyProgress()} · $${G.money.toLocaleString()}` : 'Walk into the yellow marker for your first job. Green, blue and pink markers are side jobs.', '#ff4fa3', 5);
+  bus.big('GTA <s>Vice</s> Elon City', G.done.length ? `Welcome back. Story ${storyProgress()} · $${G.money.toLocaleString()}` : 'Walk into the yellow marker for your first job. Green, blue and pink markers are side jobs.', '#ff4fa3', 5);
   if (!IS_MOBILE) canvas.requestPointerLock?.();
 };
 $('play').addEventListener('click', () => begin(false));
@@ -116,9 +118,14 @@ $('radioBtn').addEventListener('click', e => (e.currentTarget.textContent = 'Rad
 $('menuBtn').addEventListener('click', () => pause(true));
 $('mapBtn').addEventListener('click', () => toggleMap());
 $('jobBtn').addEventListener('click', () => jobNow());
-$('bigmap').addEventListener('click', () => toggleMap(false));
+$('bigmap').addEventListener('click', e => {
+  if (e.target.id === 'bigmap') {
+    toggleMap(false);
+    if (!IS_MOBILE) canvas.requestPointerLock?.();
+  }
+});
 document.addEventListener('pointerlockchange', () => {
-  if (G.started && !IS_MOBILE && document.pointerLockElement !== canvas && !G.paused && !dragging) pause(true);
+  if (G.started && !IS_MOBILE && document.pointerLockElement !== canvas && !G.paused && !dragging && !G.mapOpen) pause(true);
 });
 
 /* ---------------- quality ---------------- */

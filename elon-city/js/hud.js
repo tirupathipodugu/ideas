@@ -1,5 +1,5 @@
 // The screen: money, health, stars, weapon, radio, minimap, big messages, toasts, the full map, and touch controls.
-import { G, $, bus, touch, look, keys, press, clamp, IS_MOBILE } from './core.js';
+import { THREE, scene, G, $, bus, touch, look, keys, press, clamp, IS_MOBILE } from './core.js';
 import { HALF, LAND, places, MAP } from './world.js';
 import { vehicles } from './vehicles.js';
 import { drones } from './drones.js';
@@ -75,6 +75,35 @@ const W = LAND.maxx - LAND.minx, Hh = LAND.maxz - LAND.minz;
 const S = MAP_PX / Math.max(W, Hh);
 const LANDMARKS = [[places.giga, '#e82127'], [places.boring, '#6b6f78'], [places.starlink, '#111111'], [places.service, '#e82127'], [places.police, '#1d4fa0'], [places.pad, '#222222'], ...places.loop.map(l => [l.at, '#2a7bff'])];
 const NAMES = [[places.giga, 'Giga Texas'], [places.boring, 'Boring Co.'], [places.starlink, 'Starlink'], [places.service, 'Tesla Service'], [places.police, 'ElonPD'], [places.pad, 'Starbase'], [places.lot, 'Rival Motors'], [places.capitol, 'Texas Capitol'], ...places.loop.map(l => [l.at, 'Loop']), ...MAP.landmarks.filter(l => /Lady Bird Lake|6th Street|Congress Avenue Bridge|Rainey Street|Republic Square|Frost Bank|Convention Center$/.test(l.n)).map(l => [{ x: l.x, z: l.z }, l.n.replace(/ \(Dirty Sixth\)/, '').replace('Ann W. Richards ', '')])];
+// Everything Elon in the city, with an icon each, for the maps and the GPS.
+export const PLACES = [
+  { icon: '🚀', name: 'Starbase: fly Starship', p: places.pad, col: '#ffffff' },
+  { icon: '🛰️', name: 'Starlink (Frost Bank Tower)', p: places.starlink, col: '#9fe8ff' },
+  { icon: '🏭', name: 'Giga Texas', p: places.giga, col: '#ff4040' },
+  { icon: '🕳️', name: 'The Boring Company', p: places.boring, col: '#b0b4bc' },
+  ...places.loop.map(l => ({ icon: '🚇', name: 'Loop: ' + l.name, p: l.at, col: '#5ab4ff' })),
+  { icon: '🔧', name: 'Tesla Service (respray)', p: places.service, col: '#ff4040' },
+  { icon: '🚓', name: 'ElonPD', p: places.police, col: '#4d8dff' },
+  { icon: '🏁', name: 'Rival Motors', p: places.lot, col: '#ffd23c' },
+  { icon: '🏛️', name: 'Texas State Capitol', p: places.capitol, col: '#f0d0c0' },
+  { icon: '🌳', name: 'Republic Square (side jobs)', p: places.park, col: '#7ed957' },
+];
+// GPS: a waypoint you pick on the map; a beam of light marks it in the city.
+G.gps = null;
+const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd23c).multiplyScalar(2), transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false });
+const gpsBeam = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 400, 16, 1, true), beamMat);
+gpsBeam.visible = false;
+scene.add(gpsBeam);
+export const setGPS = (x, z, name, icon = '📍') => {
+  G.gps = { x, z, name, icon };
+  gpsBeam.position.set(x, 200, z);
+  gpsBeam.visible = true;
+  bus.toast(`GPS set: ${icon} ${name}`);
+};
+const clearGPS = () => {
+  G.gps = null;
+  gpsBeam.visible = false;
+};
 const base = document.createElement('canvas');
 base.width = MAP_PX;
 base.height = MAP_PX;
@@ -184,6 +213,47 @@ const drawMini = () => {
     mg.strokeStyle = '#000';
     mg.stroke();
   }
+  const onMini = (wx, wz, clampToEdge) => {
+    const dx = (wx - me.x) * S * scale, dz = (wz - me.z) * S * scale;
+    const c = Math.cos(rot), s = Math.sin(rot);
+    let x = dx * c - dz * s, y = dx * s + dz * c;
+    const d = Math.hypot(x, y), lim = size / 2 - 10;
+    if (d > lim) {
+      if (!clampToEdge) return null;
+      x *= lim / d;
+      y *= lim / d;
+    }
+    return [size / 2 + x, size / 2 + y];
+  };
+  mg.textAlign = 'center';
+  mg.textBaseline = 'middle';
+  mg.font = '22px system-ui, sans-serif';
+  for (const pl of PLACES) {
+    const q = onMini(pl.p.x, pl.p.z, false);
+    if (!q) continue;
+    mg.beginPath();
+    mg.arc(q[0], q[1], 14, 0, 7);
+    mg.fillStyle = 'rgba(10,8,20,.75)';
+    mg.fill();
+    mg.lineWidth = 2;
+    mg.strokeStyle = pl.col;
+    mg.stroke();
+    mg.fillText(pl.icon, q[0], q[1] + 1);
+  }
+  if (G.gps) {
+    const q = onMini(G.gps.x, G.gps.z, true);
+    mg.beginPath();
+    mg.moveTo(q[0], q[1] - 11);
+    mg.lineTo(q[0] + 9, q[1]);
+    mg.lineTo(q[0], q[1] + 11);
+    mg.lineTo(q[0] - 9, q[1]);
+    mg.closePath();
+    mg.fillStyle = '#ffd23c';
+    mg.fill();
+    mg.lineWidth = 2;
+    mg.strokeStyle = '#000';
+    mg.stroke();
+  }
   // You, pointing where you face.
   const yaw = G.mode === 'car' && G.car ? G.car.yaw : player.yaw;
   mg.save();
@@ -256,6 +326,34 @@ const drawBig = () => {
     g.strokeText(name, x * k, y * k + 20 * devicePixelRatio);
     g.fillText(name, x * k, y * k + 20 * devicePixelRatio);
   }
+  g.textBaseline = 'middle';
+  for (const pl of PLACES) {
+    const [px, py] = toMap(pl.p.x, pl.p.z);
+    g.beginPath();
+    g.arc(px * k, py * k, 13 * devicePixelRatio, 0, 7);
+    g.fillStyle = 'rgba(10,8,20,.85)';
+    g.fill();
+    g.lineWidth = 2.5 * devicePixelRatio;
+    g.strokeStyle = pl.col;
+    g.stroke();
+    g.font = `${15 * devicePixelRatio}px system-ui, sans-serif`;
+    g.fillStyle = '#fff';
+    g.fillText(pl.icon, px * k, py * k + devicePixelRatio);
+  }
+  if (G.gps) {
+    const [px, py] = toMap(G.gps.x, G.gps.z);
+    g.beginPath();
+    g.moveTo(px * k, py * k - 14 * devicePixelRatio);
+    g.lineTo(px * k + 11 * devicePixelRatio, py * k);
+    g.lineTo(px * k, py * k + 14 * devicePixelRatio);
+    g.lineTo(px * k - 11 * devicePixelRatio, py * k);
+    g.closePath();
+    g.fillStyle = '#ffd23c';
+    g.fill();
+    g.strokeStyle = '#000';
+    g.stroke();
+  }
+  g.textBaseline = 'alphabetic';
   const me = G.playerTarget();
   const [x, y] = toMap(me.x, me.z);
   g.beginPath();
@@ -266,9 +364,52 @@ const drawBig = () => {
   g.lineWidth = 3 * devicePixelRatio;
   g.stroke();
 };
+// The list beside the big map: tap a place to set the GPS.
+const legend = $('legend');
+legend.innerHTML = '<h3>Places</h3><p>Tap one, or tap the map, to set your GPS.</p>' + PLACES.map((pl, i) => `<button data-i="${i}"><span>${pl.icon}</span>${pl.name}<small></small></button>`).join('') + '<button data-i="-1"><span>✖</span>Clear GPS</button><button data-close="1"><span>⬅</span>Close map</button>';
+legend.addEventListener('click', e => {
+  e.stopPropagation();
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.close) return toggleMap(false);
+  const i = +b.dataset.i;
+  if (i < 0) clearGPS();
+  else setGPS(PLACES[i].p.x, PLACES[i].p.z, PLACES[i].name, PLACES[i].icon);
+  drawBig();
+});
+$('bigCanvas').addEventListener('click', e => {
+  e.stopPropagation();
+  const c = $('bigCanvas'), rect = c.getBoundingClientRect();
+  const mx = ((e.clientX - rect.left) / rect.width) * MAP_PX, my = ((e.clientY - rect.top) / rect.height) * MAP_PX;
+  const wx = mx / S + LAND.minx, wz = my / S + LAND.minz;
+  // Snap to a place if you tapped near its icon.
+  let best = null, bd = (30 / rect.width) * (MAP_PX / S);
+  for (const pl of PLACES) {
+    const d = Math.hypot(pl.p.x - wx, pl.p.z - wz);
+    if (d < bd) {
+      bd = d;
+      best = pl;
+    }
+  }
+  if (best) setGPS(best.p.x, best.p.z, best.name, best.icon);
+  else setGPS(wx, wz, 'Waypoint');
+  drawBig();
+});
+const updateLegend = () => {
+  const me = G.playerTarget();
+  legend.querySelectorAll('button[data-i]').forEach(b => {
+    const pl = PLACES[+b.dataset.i];
+    if (pl) b.querySelector('small').textContent = `${(Math.hypot(pl.p.x - me.x, pl.p.z - me.z) / 1000).toFixed(1)} km`;
+  });
+};
 export const toggleMap = on => {
   bigMap.hidden = !(on ?? bigMap.hidden);
-  if (!bigMap.hidden) drawBig();
+  G.mapOpen = !bigMap.hidden;
+  if (!bigMap.hidden) {
+    drawBig();
+    updateLegend();
+    document.exitPointerLock?.();
+  } else if (!IS_MOBILE && G.started && !G.paused) document.getElementById('stage').requestPointerLock?.();
 };
 
 /* ---------------- per-frame ---------------- */
@@ -276,6 +417,8 @@ let lastMoney = G.money, shownMoney = G.money;
 /* ---------------- the controls panel on the left ---------------- */
 const controlRows = () => {
   const v = G.car, m = IS_MOBILE;
+  if (G.rocket)
+    return [G.rocket.stage === 'stack' ? 'Starship' : 'Super Heavy', m ? [['FIRE', 'hold: engines'], ['Stick', 'tilt'], ['FLY', 'stage separation'], ['ENTER', 'get out (landed)']] : [['Space', 'hold: engines'], ['W A S D', 'tilt'], ['Mouse', 'look around'], ['G', 'stage separation'], ['F', 'get out (landed)']]];
   if (G.mode === 'car' && v && G.ride === v)
     return ['Robotaxi', m ? [['ENTER', 'stop & get out'], ['DRIVE', 'take the wheel'], ['FIRE', 'shoot from the window'], ['RADIO', 'change station']] : [['F', 'stop & get out'], ['T', 'take the wheel'], ['Mouse', 'look around'], ['Click', 'shoot'], ['R', 'radio']]];
   if (G.mode === 'car' && v) {
@@ -300,8 +443,26 @@ const ctrlFrame = dt => {
   if (html !== ctrlHTML) $('ctrls').innerHTML = ctrlHTML = html;
 };
 
+const gpsEl = $('gps');
+const gpsFrame = () => {
+  if (!G.gps) {
+    gpsEl.textContent = '';
+    return;
+  }
+  const me = G.playerTarget();
+  const d = Math.hypot(G.gps.x - me.x, G.gps.z - me.z);
+  if (d < 18) {
+    bus.toast(`Arrived: ${G.gps.icon} ${G.gps.name}`);
+    clearGPS();
+    return;
+  }
+  gpsEl.textContent = `${G.gps.icon} ${G.gps.name} · ${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}`;
+  beamMat.opacity = 0.25 + 0.12 * Math.sin(G.t * 3);
+};
+
 export const hudFrame = dt => {
   ctrlFrame(dt);
+  gpsFrame();
   bigT -= dt;
   if (bigT <= 0) $('big').classList.remove('on');
   shownMoney += (G.money - shownMoney) * Math.min(1, dt * 6);

@@ -10,9 +10,9 @@ import { sfx } from './audio.js';
 // Stats per kind. len/wid/h are the model's size in metres.
 export const KINDS = {
   roadster: { file: 'roadster-glb.wasm', paint: /car_main_paint/, len: 4.3, wid: 2.0, h: 1.2, max: 64, acc: 26, turn: 2.5, grip: 9, mass: 1.2, canFly: true, name: 'Roadster' },
-  cybertruck: { file: 'cybertruck-glb.wasm', paint: /^Body$/, len: 5.7, wid: 2.2, h: 1.9, max: 48, acc: 18, turn: 1.9, grip: 8, mass: 2.4, name: 'Cybertruck' },
-  modely: { file: 'modely-glb.wasm', paint: /Pearl_White/, len: 4.75, wid: 2.0, h: 1.6, max: 42, acc: 15, turn: 2.1, grip: 8, mass: 1.6, name: 'Model Y' },
-  semi: { file: 'semi-glb.wasm', paint: /^Material\.001$/, hide: /barrier|cone|wagon|^Wheels\d|RootNode\.?0*1$|^Plane\.001/i, len: 7.4, wid: 2.6, h: 4.0, max: 34, acc: 9, turn: 1.35, grip: 7, mass: 6, name: 'Semi' },
+  cybertruck: { file: 'cybertruck-glb.wasm', paint: /^Body$/, len: 5.7, wid: 2.2, h: 1.9, max: 48, acc: 18, turn: 1.9, grip: 8, mass: 2.4, canFly: true, name: 'Cybertruck' },
+  modely: { file: 'modely-glb.wasm', paint: /Pearl_White/, len: 4.75, wid: 2.0, h: 1.6, max: 42, acc: 15, turn: 2.1, grip: 8, mass: 1.6, canFly: true, name: 'Model Y' },
+  semi: { file: 'semi-glb.wasm', paint: /^Material\.001$/, hide: /barrier|cone|wagon|^Wheels\d|RootNode\.?0*1$|^Plane\.001/i, len: 7.4, wid: 2.6, h: 4.0, max: 34, acc: 9, turn: 1.35, grip: 7, mass: 6, canFly: true, name: 'Semi' },
 };
 // Variants that reuse a model with their own paint and extras.
 const VARIANTS = {
@@ -113,10 +113,54 @@ const prepare = (kind, gltf) => {
   if (!hb.isEmpty() && hb.getCenter(new V3()).z < 0) holder.rotation.y = Math.PI;
   if (kind === 'semi') holder.rotation.y += Math.PI;
   const flat = flatten(holder);
+  if (kind === 'cybertruck') addVault(flat);
   const real = new THREE.Box3().setFromObject(flat).getSize(new V3());
   spec.wid = real.x;
   spec.h = real.y;
   return flat;
+};
+
+// Cybertruck: close the bed with the vault cover, so the roof slopes all the way down to the tail.
+const addVault = flat => {
+  let apexY = -Infinity, apexZ = 0, minZ = Infinity, minX = Infinity, maxX = -Infinity;
+  const pts = [];
+  let body = null;
+  flat.traverse(o => {
+    if (!o.isMesh) return;
+    if (KINDS.cybertruck.paint.test(o.material.name)) body = o.material;
+    const p = o.geometry.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      if (y > apexY) {
+        apexY = y;
+        apexZ = z;
+      }
+      minZ = Math.min(minZ, z);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      pts.push(y, z);
+    }
+  });
+  // The top of the tailgate: the highest point in the last 30 cm.
+  let tailY = 0;
+  for (let i = 0; i < pts.length; i += 2) if (pts[i + 1] < minZ + 0.3) tailY = Math.max(tailY, pts[i]);
+  const hw = ((maxX - minX) / 2) * 0.86, z1 = minZ + 0.02, y0 = apexY - 0.015;
+  const v = [
+    // the sloped cover
+    -hw, y0, apexZ, hw, y0, apexZ, hw, tailY, z1, -hw, y0, apexZ, hw, tailY, z1, -hw, tailY, z1,
+    // the two triangular sails
+    hw, y0, apexZ, hw, tailY, apexZ, hw, tailY, z1,
+    -hw, y0, apexZ, -hw, tailY, z1, -hw, tailY, apexZ,
+  ];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((v.length / 3) * 2).fill(0), 2));
+  g.computeVertexNormals();
+  const mat = body || new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 0.8, roughness: 0.35 });
+  const m = new THREE.Mesh(g, mat);
+  m.material.side = THREE.DoubleSide;
+  m.castShadow = m.receiveShadow = true;
+  flat.add(m);
 };
 
 // Paint: a car's own copy of the paint material.
@@ -231,7 +275,9 @@ const addLightbar = v => {
 const nozzle = new THREE.MeshStandardMaterial({ color: 0x55595f, metalness: 0.95, roughness: 0.25 });
 const addJets = v => {
   v.jets = [];
-  for (const [x, z] of [[-0.75, 1.3], [0.75, 1.3], [-0.75, -1.3], [0.75, -1.3]]) {
+  // Sized to the car: under each corner, inside the wheels.
+  const jx = v.spec.wid / 2 - 0.25, jz = v.spec.len / 2 - 0.85;
+  for (const [x, z] of [[-jx, jz], [jx, jz], [-jx, -jz], [jx, -jz]]) {
     const n = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.25, 12), nozzle);
     n.position.set(x, 0.18, z);
     v.body.add(n);
@@ -546,7 +592,7 @@ const spawnTrafficNear = (p, minR, maxR) => {
   if (!e) return null;
   const r = Math.random();
   // Lots of driverless Cybercabs: hop in any of them for a ride.
-  const type = e.c.startsWith('motorway') ? (r < 0.3 ? 'semi' : r < 0.7 ? 'modely' : 'cybertruck') : r < 0.42 ? 'modely' : r < 0.56 ? 'cybertruck' : r < 0.64 ? 'semi' : r < 0.93 ? 'cybercab' : 'roadster';
+  const type = e.c.startsWith('motorway') ? (r < 0.3 ? 'semi' : r < 0.7 ? 'modely' : 'cybertruck') : r < 0.34 ? 'modely' : r < 0.48 ? 'cybertruck' : r < 0.54 ? 'semi' : r < 0.76 ? 'cybercab' : 'roadster';
   const dir = e.oneway ? 1 : Math.random() < 0.5 ? 1 : -1;
   const pt = lanePoint(e, dir, rnd(6, e.len - 6), {});
   if (vehicles.some(o => Math.hypot(o.pos.x - pt.x, o.pos.z - pt.z) < 9)) return null;
@@ -566,7 +612,7 @@ const parkNear = (p, minR, maxR) => {
   const x = pt.x - pt.dz * o, z = pt.z + pt.dx * o;
   if (!isLand(x, z) || vehicles.some(o => Math.hypot(o.pos.x - x, o.pos.z - z) < 7)) return null;
   const r = Math.random();
-  const type = r < 0.5 ? 'modely' : r < 0.75 ? 'cybertruck' : r < 0.9 ? 'roadster' : 'semi';
+  const type = r < 0.4 ? 'modely' : r < 0.65 ? 'cybertruck' : r < 0.93 ? 'roadster' : 'semi';
   const v = spawnVehicle(type, x, z, Math.atan2(pt.dx, pt.dz) + (side < 0 && !e.oneway ? Math.PI : 0));
   v.parked = true;
   return v;

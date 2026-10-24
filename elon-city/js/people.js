@@ -46,11 +46,16 @@ export const loadPeople = () => {
 const LOOKS = {
   player: { model: 'soldier', tint: 0x55595f },
   cop: { model: 'soldier', tint: 0x6f86c9 },
-  civ: () => pick([{ model: 'michelle' }, { model: 'michelle' }, { model: 'xbot', optimus: true }, { model: 'xbot', optimus: true }, { model: 'xbot', optimus: true }, { model: 'soldier', tint: pick([0xc9a27a, 0x9fb38a, 0xb5b5b5, 0xd99a8a]) }]),
+  // Lots of Optimus robots in every colour, among the people.
+  civ: () => (Math.random() < 0.72 ? { model: 'xbot', optimus: true, shell: pick(SHELLS) } : pick([{ model: 'michelle' }, { model: 'michelle' }, { model: 'soldier', tint: pick([0xc9a27a, 0x9fb38a, 0xb5b5b5, 0xd99a8a]) }])),
   // Rogue Optimus: dark shell, glowing red joints.
   bot: { model: 'xbot', optimus: true, rogue: true },
 };
 
+// Optimus shell colours: Tesla white, black, silver, gold, and some bright ones.
+const SHELLS = [0xf3f4f6, 0xf3f4f6, 0x1c1d21, 0xb9bec6, 0xd4af37, 0xc8102e, 0x1f5fd1, 0x17a589, 0xff6fae, 0xff8c1a, 0x7d3cff, 0x9be15d];
+const shellMats = {};
+const shellMat = c => (shellMats[c] ??= new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.22, metalness: c === 0xd4af37 || c === 0xb9bec6 ? 0.75 : 0.08, clearcoat: 1, clearcoatRoughness: 0.08 }));
 const OPT = {
   shell: new THREE.MeshPhysicalMaterial({ color: 0xf3f4f6, roughness: 0.22, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.08 }),
   joint: new THREE.MeshPhysicalMaterial({ color: 0x1a1b1f, roughness: 0.35, metalness: 0.75, clearcoat: 0.5 }),
@@ -103,7 +108,7 @@ const dress = h => {
     if (look.optimus) {
       // Tesla bot: glossy white shell over satin black joints; rogue ones are gunmetal with red-hot joints.
       const joint = /joint/i.test(o.material.name);
-      o.material = joint ? OPT.joint : look.rogue ? OPT.rogueShell : OPT.shell;
+      o.material = joint ? OPT.joint : look.rogue ? OPT.rogueShell : look.shell ? shellMat(look.shell) : OPT.shell;
       if (joint && look.rogue) o.material = OPT.rogueJoint;
     }
     if (o.material.map) o.material.map.anisotropy = 4;

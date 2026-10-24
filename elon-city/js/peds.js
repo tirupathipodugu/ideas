@@ -10,7 +10,7 @@ export { makeHuman, animHuman };
 
 /* ---------------- pedestrians ---------------- */
 export const peds = [];
-const MAX_PEDS = 34;
+const MAX_PEDS = 72;
 const MAX_BOTS = 4;
 
 export const spawnPed = (x, z, opts = {}) => {
@@ -295,12 +295,12 @@ onUpdate(dt => {
     const civ = peds.filter(p => p.kind === 'civ').length;
     const bots = peds.filter(p => p.kind === 'bot' && p.state !== 'dead').length;
     const wantBot = bots < MAX_BOTS && G.t > 25;
-    for (let k = 0; k < 3 && (peds.filter(p => p.kind === 'civ').length < MAX_PEDS || wantBot); k++) {
-      const e = randomEdgeNear(me, 25, 150, e => !e.c.startsWith('motorway') && !e.bridge && e.len > 12);
+    for (let k = 0; k < 6 && (peds.filter(p => p.kind === 'civ').length < MAX_PEDS || wantBot); k++) {
+      const e = randomEdgeNear(me, 15, 120, e => !e.c.startsWith('motorway') && !e.bridge && e.len > 12);
       if (e) {
         const route = { e, dir: Math.random() < 0.5 ? 1 : -1, s: rnd(2, e.len - 2), side: Math.random() < 0.5 ? 1 : -1 };
         const q = walkAt({ route }, {});
-        if (Math.hypot(q.x - me.x, q.z - me.z) > 30 && isLand(q.x, q.z)) {
+        if (Math.hypot(q.x - me.x, q.z - me.z) > 20 && isLand(q.x, q.z)) {
           const bot = wantBot && (civ >= MAX_PEDS || Math.random() < 0.3) && Math.hypot(q.x - me.x, q.z - me.z) > 50;
           const p = spawnPed(q.x, q.z, bot ? { kind: 'bot', hp: 70 } : {});
           p.route = route;

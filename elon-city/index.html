@@ -2,9 +2,9 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Elon City</title>
+<title>GTA Elon City</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%9A%80%3C/text%3E%3C/svg%3E">
-<meta name="description" content="Elon City: an open-world parody game set in downtown Austin, Texas, in your browser. Steal any car, fly the Roadster, wield the Not-a-Flamethrower, call Starlink strikes, outrun ElonPD and catch a Starship booster.">
+<meta name="description" content="GTA Elon City (Vice crossed out): an open-world parody game set in downtown Austin, Texas, in your browser. Steal any car, fly the Roadster, wield the Not-a-Flamethrower, call Starlink strikes, outrun ElonPD and catch a Starship booster.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&family=Saira+Condensed:wght@500;700;900&display=swap">
@@ -105,6 +105,9 @@ body.touch .cross{display:none}
 .screen[hidden]{display:none}
 .card{max-width:640px;width:100%;text-align:center}
 .logo{font:400 clamp(3.2rem,12vw,6.4rem)/1 Pacifico,cursive;color:var(--pink);text-shadow:0 0 18px rgba(255,79,163,.8),0 4px 0 #2a0a24;transform:rotate(-6deg);margin:0 0 6px}
+.logo .gta{display:block;font:900 clamp(2.6rem,9vw,4.6rem)/1 var(--ui);color:#fff;letter-spacing:.06em;-webkit-text-stroke:2px #000;text-shadow:0 4px 0 #000,0 0 18px rgba(0,0,0,.5);transform:rotate(6deg);margin-bottom:-4px}
+.logo .vice{display:block;font:400 clamp(1.6rem,6vw,2.8rem)/1 Pacifico,cursive;color:#3fe3f0;opacity:.75;text-decoration:line-through;text-decoration-color:#ff2d55;text-decoration-thickness:.14em;text-shadow:0 0 12px rgba(63,227,240,.6);margin:2px 0 -6px}
+#big s{color:#3fe3f0;opacity:.7;text-decoration-color:#ff2d55;text-decoration-thickness:.12em;margin:0 .2em}
 .logo small{display:block;font:900 clamp(1rem,3.4vw,1.4rem)/1 var(--ui);color:var(--cyan);letter-spacing:.5em;transform:rotate(6deg);margin-top:10px;text-shadow:0 0 12px rgba(63,227,240,.8)}
 .tag{font-size:1.15rem;opacity:.9;margin:20px auto 18px;max-width:520px;line-height:1.4}
 .load{height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden;max-width:320px;margin:0 auto 6px}
@@ -120,7 +123,15 @@ body.touch .keys{display:none}
 body.touch .tkeys{display:block}
 .credit{font-size:.75rem;opacity:.55;margin-top:22px;line-height:1.5}
 .credit a{color:inherit}
-#bigmap{position:fixed;inset:0;display:grid;place-items:center;background:rgba(10,6,18,.75);pointer-events:auto}
+#bigmap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;overflow:auto;padding:12px;background:rgba(10,6,18,.75);pointer-events:auto}
+#legend{width:min(300px,90vw);max-height:86vh;overflow:auto;background:rgba(8,10,16,.88);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:12px}
+#legend h3{margin:0;font:400 1.5rem Pacifico,cursive;color:var(--pink)}
+#legend p{margin:2px 0 8px;opacity:.7;font-size:.85rem}
+#legend button{display:flex;align-items:center;gap:8px;width:100%;margin:4px 0;padding:7px 10px;border-radius:9px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-weight:700;font-size:.95rem;text-align:left}
+#legend button span{width:24px;text-align:center}
+#legend button small{margin-left:auto;opacity:.6;font-weight:500}
+#legend button:hover{background:rgba(255,79,163,.22)}
+#gps{margin-top:4px;font-weight:700;font-size:.9rem;color:var(--gold);text-shadow:var(--shadow);max-width:220px}
 #bigmap[hidden]{display:none}
 #bigCanvas{border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
 @media (max-width:640px){
@@ -140,7 +151,7 @@ body.touch .tkeys{display:block}
     <div class="bars"><div class="bar"><i id="hp" style="width:100%"></i></div><div class="bar"><i id="ar" style="width:0"></i></div></div>
     <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
   </div>
-  <div class="bl"><canvas id="mini" width="340" height="340"></canvas><div id="radio"></div></div>
+  <div class="bl"><canvas id="mini" width="340" height="340"></canvas><div id="gps"></div><div id="radio"></div></div>
   <div class="veh"><div id="veh"></div><div id="speed"></div><div class="vbar"><i id="vhp" style="width:100%"></i></div></div>
   <div id="timer"></div>
   <div id="obj"></div>
@@ -167,11 +178,11 @@ body.touch .tkeys{display:block}
 <div id="hurt"></div>
 <div id="fade"></div>
 
-<div id="bigmap" hidden><canvas id="bigCanvas"></canvas></div>
+<div id="bigmap" hidden><canvas id="bigCanvas"></canvas><div id="legend"></div></div>
 
 <div class="screen" id="start">
   <div class="card">
-    <h1 class="logo">Elon City<small>OPEN WORLD</small></h1>
+    <h1 class="logo"><span class="gta">GTA</span><s class="vice">Vice</s>Elon City<small>AUSTIN · OPEN WORLD</small></h1>
     <p class="tag">Steal any car. Fly the Roadster over the rooftops. Torch rogue drones with the Not-a-Flamethrower, call down Starlink, outrun ElonPD, haul freight in the Semi, and catch a Starship booster with the tower. It never ends.</p>
     <div class="load"><i id="loadBar"></i></div>
     <div id="loadText">Loading the cars…</div>

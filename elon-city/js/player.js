@@ -99,7 +99,9 @@ const respawn = () => {
   G.health = 100;
   G.armor = 0;
   G.money = Math.max(0, G.money - (busted ? 500 : 200));
-  if (busted) G.ammo = G.ammo.map((a, i) => (i === 0 || i === 3 ? a : 0));
+  if (busted) G.ammo = G.ammo.map((a, i) => (i === 0 || i === 3 || i === 4 ? a : 0));
+  G.weapon = 4;
+  bus.weapon?.();
   G.clearWanted?.();
   G.mode = 'foot';
   body.root.visible = true;
@@ -149,7 +151,7 @@ const enterCar = v => {
   bus.vehicle?.(v);
   if (v.spec.canFly && !G.flyHint) {
     G.flyHint = true;
-    bus.toast(IS_MOBILE ? 'Roadster: tap FLY to take off' : 'Roadster: press G to fly, Space up, C down');
+    bus.toast(IS_MOBILE ? 'Every car flies: tap FLY to take off' : 'Every car flies: press G, Space up, C down');
   }
   G.onEnter?.(v);
 };
@@ -303,7 +305,7 @@ const flares = [];
 const GRAV = 9;
 const fireFlare = () => {
   if (me.coolFlare > 0) return;
-  if (G.ammo[4] <= 0) return bus.toast('Out of flares: rogue robots drop them');
+  if (G.ammo[4] <= 0) G.ammo[4] = Infinity;
   me.coolFlare = 0.6;
   G.ammo[4]--;
   const from = G.mode === 'car' ? G.car.pos.clone().setY(G.car.pos.y + G.car.spec.h + 0.6) : handPos();
@@ -470,7 +472,7 @@ const take = p => {
     sfx.coin();
   } else if (k === 'flare') {
     G.weapons[4] = true;
-    G.ammo[4] = Math.min(40, G.ammo[4] + 6);
+    G.ammo[4] = Infinity;
     sfx.coin();
   } else if (k === 'coil') {
     G.weapons[2] = true;
@@ -734,8 +736,8 @@ const placeCamera = dt => {
   if (G.mode === 'car' && G.car) {
     const v = G.car;
     target = v.pos.clone().setY(v.pos.y + v.spec.h * 0.8);
-    dist = (v.spec.len * 1.35 + 5) * camDist + (v.flying ? 4 : 0);
-    height = 2.2 + v.spec.h * 0.6;
+    dist = (v.spec.len * 0.95 + 3.4) * camDist + (v.flying ? 3 : 0);
+    height = 1.7 + v.spec.h * 0.55;
     const speed = v.vel.length();
     // Swing behind the car unless you have looked around in the last moment.
     if (look.idle > 1.2 && speed > 2) {
@@ -816,7 +818,7 @@ onUpdate(dt => {
     engine: v || ride ? 1 : 0,
     rpm: ride ? G.loopSpeed / 42 : v ? clamp(v.vel.length() / v.spec.max, 0, 1.2) + Math.abs(v.input.throttle) * 0.2 : 0,
     fire: me.flaming ? 1 : 0,
-    jet: v && (v.flying || v.input.boost || v.spinT > 0) && v.spec.canFly ? 0.5 + (v.input.boost || v.spinT > 0 ? 0.4 : 0) : 0,
+    jet: Math.max(G.rocketJet ? 0.6 + G.rocketJet * 0.4 : 0, v && (v.flying || v.input.boost || v.spinT > 0) && v.spec.canFly ? 0.5 + (v.input.boost || v.spinT > 0 ? 0.4 : 0) : 0),
     siren,
     skid: clamp((lat - 3.5) / 6, 0, 1) + (v && v.input.handbrake && v.vel.length() > 6 ? 0.6 : 0),
     walk: G.mode === 'foot' && me.pos.y < 0.1 ? me.speed : 0,
