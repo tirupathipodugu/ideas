@@ -199,6 +199,14 @@ const nearestOnRing = (pts, x, z) => {
   return _q;
 };
 const _near = [];
+// The ground under (x, z) for something at height y: a roof you're above, or the street.
+const _under = [];
+export const groundAt = (x, z, y = 0) => {
+  let g = 0;
+  for (const s of solids) if (s.h <= y + 0.7 && s.h > g && x > s.minx && x < s.maxx && z > s.minz && z < s.maxz) g = s.h;
+  for (const s of nearPolys(x, z, 0, _under)) if (s.h <= y + 0.7 && s.h > g && inPoly(s.pts, x, z)) g = s.h;
+  return g;
+};
 // Is this point inside something solid at height y? (pad grows boxes a little.)
 export const insideSolid = (x, z, y = 0, pad = 0) => {
   for (const s of solids) if (y < s.h && x > s.minx - pad && x < s.maxx + pad && z > s.minz - pad && z < s.maxz + pad) return true;

@@ -1,5 +1,5 @@
 // You: walking, driving, flying, fighting; the camera; dying and starting again; pickups, tunnels, respray.
-import { THREE, V3, scene, camera, G, keys, hit, touch, look, bus, clamp, lerp, rnd, wrapA, damp, collide, onUpdate, insideSolid, IS_MOBILE } from './core.js';
+import { THREE, V3, scene, camera, G, keys, hit, touch, look, bus, clamp, lerp, rnd, wrapA, damp, collide, onUpdate, insideSolid, groundAt, IS_MOBILE } from './core.js';
 import { places, isLand, followSun, HALF } from './world.js';
 import { vehicles, nearestVehicle, hurtVehicle, fwdVec, rightVec, removeVehicle } from './vehicles.js';
 import { makeHuman, animHuman, peds, hurtPed, setOnFire, panic, spawnPed } from './peds.js';
@@ -144,7 +144,8 @@ const enterCar = v => {
     bus.toast(IS_MOBILE ? 'Robotaxi: enjoy the ride. ENTER to stop, FLY to take the wheel' : 'Robotaxi: enjoy the ride. F to stop and get out, T to take the wheel', 4);
     return;
   }
-  if (v.driver === 'ai') {
+  if (v.driver === 'ai' || v.driver === 'sky') {
+    v.sky = null;
     // Carjacking: the driver is pulled out and runs.
     v.driver = null;
     v.ai = null;
@@ -200,18 +201,18 @@ const leaveCar = (force = false) => {
     bus.vehicle?.(null);
     return;
   }
-  if (!force && v.pos.y > 2.5) {
-    bus.toast('Land first: hold C to come down');
+  if (!force && v.pos.y - (v.floor || 0) > 2.5) {
+    bus.toast(IS_MOBILE ? 'Land first: hold FLY to come down' : 'Land first: hold G to come down');
     return;
   }
   const side = rightVec(v.yaw, new V3()).multiplyScalar(-(v.spec.wid / 2 + 0.9));
-  me.pos.copy(v.pos).add(side).setY(0);
+  me.pos.copy(v.pos).add(side).setY(v.pos.y);
   me.yaw = v.yaw;
   v.driver = null;
   v.input.throttle = v.input.steer = 0;
   v.input.boost = false;
   v.input.up = 0;
-  if (v.flying && v.pos.y < 2.5) v.flying = false;
+  if (v.flying && v.pos.y - (v.floor || 0) < 2.5) v.flying = false;
   G.car = null;
   G.mode = 'foot';
   body.root.visible = true;
@@ -640,11 +641,16 @@ const footStep = dt => {
   if (aiming || (firing() && G.weapon === 0)) me.yaw = me.yaw + wrapA(look.yaw - me.yaw) * Math.min(1, dt * 14);
   me.speed = speed * k;
   // Jump.
-  if ((hit('Space') || touch.jumpPressed) && me.pos.y <= 0.01) me.vy = 6.5;
+  // Roofs are ground too; falling a long way hurts.
+  const floor = (me.floor = groundAt(me.pos.x, me.pos.z, me.pos.y));
+  if ((hit('Space') || touch.jumpPressed) && me.pos.y <= floor + 0.01) me.vy = 6.5;
   me.vy -= 20 * dt;
-  me.pos.y = Math.max(0, me.pos.y + me.vy * dt);
-  if (me.pos.y === 0) me.vy = 0;
-  collide(me.pos, 0.4, me.pos.y);
+  me.pos.y = Math.max(floor, me.pos.y + me.vy * dt);
+  if (me.pos.y === floor) {
+    if (me.vy < -16) G.hurtPlayer((-me.vy - 16) * 7);
+    me.vy = 0;
+  }
+  collide(me.pos, 0.4, me.pos.y + 0.3);
   // Standing on a car roof? Push off instead.
   for (const v of vehicles) {
     const dx = me.pos.x - v.pos.x, dz = me.pos.z - v.pos.z;
@@ -684,7 +690,7 @@ const footStep = dt => {
   me.punch -= dt;
 
   // Get in.
-  const near = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && v.pos.y < 2 && !v.dead);
+  const near = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && Math.abs(v.pos.y - me.pos.y) < 2 && !v.dead);
   if (near && near !== me.hintCar && G.t - (me.hintT || -9) > 3) {
     me.hintCar = near;
     me.hintT = G.t;
@@ -692,7 +698,7 @@ const footStep = dt => {
     bus.toast(near.type === 'cybercab' && near.driver === 'ai' && !near.mission ? `${key}: ride the Robotaxi` : `${key}: take the ${near.name}`, 1.8);
   }
   if (hit('KeyE') || hit('KeyF') || touch.enterPressed) {
-    const v = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && v.pos.y < 2);
+    const v = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && Math.abs(v.pos.y - me.pos.y) < 2);
     if (v) enterCar(v);
   }
   body.root.position.copy(me.pos);
@@ -766,7 +772,7 @@ const carStep = dt => {
     }
     inp.up = up;
     // Touching down while coming down lands it.
-    if (v.pos.y < 0.3 && up < 0) {
+    if (v.pos.y - (v.floor || 0) < 0.3 && up < 0) {
       v.flying = false;
       v.dropTo = null;
       bus.toast('Landed');
@@ -774,7 +780,7 @@ const carStep = dt => {
   }
   // 2026 Roadster: cold-gas thrusters kick it off the ground into a barrel roll.
   if ((hit('KeyB') || touch.stuntPressed) && v.spec.canFly && !v.dead && !(v.spinT > 0)) {
-    if (v.pos.y < 0.3 || v.flying) v.vy = Math.max(v.vy, v.flying ? 4 : 9.5);
+    if (v.pos.y - (v.floor || 0) < 0.3 || v.flying) v.vy = Math.max(v.vy, v.flying ? 4 : 9.5);
     v.spinT = 0.001;
     v.spinDir = inp.steer < -0.2 ? -1 : 1;
     sfx.whoosh();
@@ -902,7 +908,7 @@ onUpdate(dt => {
     jet: Math.max(G.rocketJet ? 0.6 + G.rocketJet * 0.4 : 0, v && (v.flying || v.input.boost || v.spinT > 0) && v.spec.canFly ? 0.5 + (v.input.boost || v.spinT > 0 ? 0.4 : 0) : 0),
     siren,
     skid: clamp((lat - 3.5) / 6, 0, 1) + (v && v.input.handbrake && v.vel.length() > 6 ? 0.6 : 0),
-    walk: G.mode === 'foot' && me.pos.y < 0.1 ? me.speed : 0,
+    walk: G.mode === 'foot' && me.pos.y - (me.floor || 0) < 0.1 ? me.speed : 0,
     inside: ride ? 1 : 0,
     electric: 1,
   });

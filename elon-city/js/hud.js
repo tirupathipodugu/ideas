@@ -1,6 +1,6 @@
 // The screen: money, health, stars, weapon, radio, minimap, big messages, toasts, the full map, and touch controls.
 import { THREE, scene, G, $, bus, touch, look, keys, press, clamp, IS_MOBILE } from './core.js';
-import { HALF, LAND, places, MAP } from './world.js';
+import { HALF, LAND, places, MAP, nodes, nearestEdge, edgePoint } from './world.js';
 import { vehicles } from './vehicles.js';
 import { drones } from './drones.js';
 import { peds } from './peds.js';
@@ -96,13 +96,85 @@ gpsBeam.visible = false;
 scene.add(gpsBeam);
 export const setGPS = (x, z, name, icon = '📍') => {
   G.gps = { x, z, name, icon };
+  routeT = 0;
   gpsBeam.position.set(x, 200, z);
   gpsBeam.visible = true;
   bus.toast(`GPS set: ${icon} ${name}`);
 };
 const clearGPS = () => {
   G.gps = null;
+  G.route = null;
   gpsBeam.visible = false;
+};
+// Route along the real streets, like a sat-nav: A* over the road graph (one-way streets count when driving).
+const nearestNodeOnRoad = (x, z) => {
+  const q = nearestEdge(x, z, () => true, 6);
+  if (!q) return null;
+  return q.s < q.e.len / 2 ? nodes[q.e.a] : nodes[q.e.b];
+};
+const findRoute = (from, to, driving) => {
+  const a = nearestNodeOnRoad(from.x, from.z), b = nearestNodeOnRoad(to.x, to.z);
+  if (!a || !b) return null;
+  const g = new Map([[a.id, 0]]), came = new Map(), open = [a], done = new Set();
+  const h = n => Math.hypot(n.x - b.x, n.z - b.z);
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (g.get(open[i].id) + h(open[i]) < g.get(open[bi].id) + h(open[bi])) bi = i;
+    const n = open.splice(bi, 1)[0];
+    if (n === b) break;
+    if (done.has(n.id)) continue;
+    done.add(n.id);
+    for (const o of driving ? n.out : n.all) {
+      const m = nodes[o.dir > 0 ? o.e.b : o.e.a];
+      const cost = g.get(n.id) + o.e.len * (o.e.c === 'service' ? 1.6 : 1);
+      if (cost < (g.get(m.id) ?? Infinity)) {
+        g.set(m.id, cost);
+        came.set(m.id, { n, o });
+        open.push(m);
+      }
+    }
+  }
+  if (!came.has(b.id) && a !== b) return null;
+  // Walk back from the goal, stitching each street's own curve.
+  const pts = [to.x, to.z];
+  let cur = b;
+  while (cur !== a) {
+    const { n, o } = came.get(cur.id);
+    const p = o.e.p;
+    if (o.dir > 0) for (let i = p.length - 2; i >= 0; i -= 2) pts.push(p[i], p[i + 1]);
+    else for (let i = 0; i < p.length; i += 2) pts.push(p[i], p[i + 1]);
+    cur = n;
+  }
+  pts.push(from.x, from.z);
+  const out = [];
+  for (let i = pts.length - 2; i >= 0; i -= 2) out.push(pts[i], pts[i + 1]);
+  return out;
+};
+let routeT = 0;
+const routeFrame = dt => {
+  routeT -= dt;
+  if (!G.gps || routeT > 0) return;
+  routeT = 1.5;
+  const me = G.playerTarget();
+  // Flying or far off any road: a straight line, like a plane.
+  const flying = (G.car && G.car.flying) || G.rocket;
+  G.route = flying ? [me.x, me.z, G.gps.x, G.gps.z] : findRoute(me, G.gps, G.mode === 'car') || [me.x, me.z, G.gps.x, G.gps.z];
+};
+const strokeRoute = (g, map, w) => {
+  const r = G.route;
+  if (!r) return;
+  g.beginPath();
+  for (let i = 0; i < r.length; i += 2) {
+    const [x, y] = map(r[i], r[i + 1]);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.lineJoin = g.lineCap = 'round';
+  g.strokeStyle = 'rgba(0,0,0,.55)';
+  g.lineWidth = w * 1.6;
+  g.stroke();
+  g.strokeStyle = '#3d8bff';
+  g.lineWidth = w;
+  g.stroke();
 };
 const base = document.createElement('canvas');
 base.width = MAP_PX;
@@ -189,6 +261,8 @@ const drawMini = () => {
       mg.stroke();
     }
   };
+  strokeRoute(mg, toMap, 7 / scale);
+  for (const v of vehicles) if (v.driver === 'sky') dot(v.pos.x, v.pos.z, 2.5, '#c8f0ff', true);
   for (const v of vehicles) if (v.driver === 'cop') dot(v.pos.x, v.pos.z, 4, Math.floor(G.t * 6) % 2 ? '#ff3040' : '#2a7bff', true);
   for (const d of drones) if (!d.dead) dot(d.pos.x, d.pos.z, 3, d.police ? '#4da3ff' : '#ff3a4a', true);
   for (const p of peds) if (p.kind === 'bot' && p.state !== 'dead') dot(p.pos.x, p.pos.z, 3, '#ff2a3a', true);
@@ -326,6 +400,7 @@ const drawBig = () => {
     g.strokeText(name, x * k, y * k + 20 * devicePixelRatio);
     g.fillText(name, x * k, y * k + 20 * devicePixelRatio);
   }
+  strokeRoute(g, (x, z) => toMap(x, z).map(v => v * k), 6 * devicePixelRatio);
   g.textBaseline = 'middle';
   for (const pl of PLACES) {
     const [px, py] = toMap(pl.p.x, pl.p.z);
@@ -417,6 +492,7 @@ let lastMoney = G.money, shownMoney = G.money;
 /* ---------------- the controls panel on the left ---------------- */
 const controlRows = () => {
   const v = G.car, m = IS_MOBILE;
+  if (G.rocket?.stage === 'travel') return ['Starship trip', m ? [['ENTER', 'skip to landing'], ['Drag', 'look around']] : [['F', 'skip to landing'], ['Mouse', 'look around']]];
   if (G.rocket)
     return [G.rocket.stage === 'stack' ? 'Starship' : 'Super Heavy', m ? [['FIRE', 'hold: engines'], ['Stick', 'tilt'], ['FLY', 'stage separation'], ['ENTER', 'get out (landed)']] : [['Space', 'hold: engines'], ['W A S D', 'tilt'], ['Mouse', 'look around'], ['G', 'stage separation'], ['F', 'get out (landed)']]];
   if (G.mode === 'car' && v && G.ride === v)
@@ -463,6 +539,7 @@ const gpsFrame = () => {
 export const hudFrame = dt => {
   ctrlFrame(dt);
   gpsFrame();
+  routeFrame(dt);
   bigT -= dt;
   if (bigT <= 0) $('big').classList.remove('on');
   shownMoney += (G.money - shownMoney) * Math.min(1, dt * 6);

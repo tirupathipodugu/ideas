@@ -676,6 +676,8 @@ export const buildingsByName = {};
         g.rotateY(Math.atan2(-uz, ux));
         g.translate(cx, h + ph / 2, cz);
         roofGear.push(g);
+        // Solid: you can stand on it or walk round it, not through it.
+        addPoly(corners.flat(), h + ph);
         if (h > 40 && srnd() < 0.35) {
           const ant = new THREE.CylinderGeometry(0.2, 0.3, srnd(8, 18), 6);
           ant.translate(cx + srnd(-wA, wA) * 0.3, h + ph + 5, cz + srnd(-wB, wB) * 0.3);
@@ -774,6 +776,9 @@ const centroid = p => {
     crown.rotation.y = Math.PI / 4;
     crown.castShadow = true;
     scene.add(crown);
+    // Solid, so flying cars bump it rather than pass inside.
+    const k = r * 0.5;
+    addPoly([c.x - k, c.z - k, c.x + k, c.z - k, c.x + k, c.z + k, c.x - k, c.z + k], b.h + 26);
     places.frost = c.clone().setY(b.h);
   }
 }

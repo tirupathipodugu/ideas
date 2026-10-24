@@ -1,5 +1,5 @@
 // Every vehicle in town: the models, driving and flying, crashes, fire, and the traffic that keeps the streets busy.
-import { THREE, V3, scene, G, clamp, lerp, rnd, pick, wrapA, collide, onUpdate, camera, damp } from './core.js';
+import { THREE, V3, scene, G, clamp, lerp, rnd, pick, wrapA, collide, onUpdate, camera, damp, insideSolid, groundAt } from './core.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -359,24 +359,26 @@ const physics = (v, dt) => {
   v.vel.copy(fwd).multiplyScalar(fs).addScaledVector(right, lat);
 
   // Height: flying holds altitude on the thrusters; anything else falls.
+  // Roofs count as ground: you can land on buildings.
+  const floor = (v.floor = groundAt(v.pos.x, v.pos.z, v.pos.y));
   if (v.flying && !wrecked) {
     const lift = inp.up;
     v.vy = damp(v.vy, lift * 14, 3, dt);
     if (!lift) v.vy = damp(v.vy, 0, 2, dt);
-    v.pos.y = Math.max(0, v.pos.y + v.vy * dt);
-    if (v.pos.y > 220) v.pos.y = 220;
+    v.pos.y = Math.max(floor, v.pos.y + v.vy * dt);
+    if (v.pos.y > 420) v.pos.y = 420;
     if (Math.random() < 0.7) for (const j of v.jets) thrust(j.getWorldPosition(new V3()), new V3(0, -1, 0), 0.6 + Math.max(0, lift) * 0.5);
-  } else if (v.pos.y > 0 || v.vy > 0) {
+  } else if (v.pos.y > floor || v.vy > 0) {
     v.vy -= 22 * dt;
     v.pos.y += v.vy * dt;
-    if (v.pos.y <= 0) {
+    if (v.pos.y <= floor) {
       if (v.vy < -14) {
         hurtVehicle(v, (-v.vy - 14) * 3);
         sfx.crash(1);
         addShake(0.5);
         dust(v.pos, 10);
       }
-      v.pos.y = 0;
+      v.pos.y = floor;
       v.vy = 0;
     }
   }
@@ -395,7 +397,7 @@ const physics = (v, dt) => {
     let hitN = null;
     for (const k of [off, -off, 0]) {
       const p = { x: v.pos.x + fwd.x * k, z: v.pos.z + fwd.z * k };
-      const n = collide(p, r, v.pos.y);
+      const n = collide(p, r, v.pos.y + 0.3);
       if (n.hit) {
         v.pos.x += p.x - (v.pos.x + fwd.x * k);
         v.pos.z += p.z - (v.pos.z + fwd.z * k);
@@ -618,9 +620,54 @@ const parkNear = (p, minR, maxR) => {
   return v;
 };
 
+// Sky traffic: Teslas flying between points over downtown, each at its own height, climbing over towers.
+const SKY = 16;
+const sky = () => vehicles.filter(v => v.driver === 'sky');
+const skyTarget = (v, p) => {
+  const a = rnd(0, Math.PI * 2), d = rnd(250, 600);
+  v.sky.to = new V3(clamp(p.x + Math.cos(a) * d, -1250, 1250), 0, clamp(p.z + Math.sin(a) * d, -1250, 1250));
+};
+const spawnSky = (p, minR, maxR) => {
+  const a = rnd(0, Math.PI * 2), d = rnd(minR, maxR);
+  const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
+  const r = Math.random();
+  const type = r < 0.28 ? 'roadster' : r < 0.46 ? 'cybercab' : r < 0.6 ? 'modely' : r < 0.82 ? 'cybertruck' : 'semi';
+  const v = spawnVehicle(type, x, z, rnd(0, 6.28), { driver: 'sky' });
+  v.flying = true;
+  v.sky = { alt: rnd(28, 110), to: null, climb: 0 };
+  v.pos.y = v.sky.alt;
+  skyTarget(v, p);
+  v.vel.copy(fwdOf(v.yaw, new V3())).multiplyScalar(14);
+  return v;
+};
+const skyDrive = (v, dt) => {
+  const s = v.sky;
+  const dx = s.to.x - v.pos.x, dz = s.to.z - v.pos.z;
+  if (Math.hypot(dx, dz) < 40) skyTarget(v, v.pos);
+  const err = wrapA(Math.atan2(dx, dz) - v.yaw);
+  v.input.steer = clamp(err * 1.5, -1, 1);
+  const fwd = fwdOf(v.yaw, new V3());
+  // Look ahead for towers and go over them.
+  let want = s.alt;
+  for (const k of [15, 35, 60]) {
+    const x = v.pos.x + fwd.x * k, z = v.pos.z + fwd.z * k;
+    for (let h = v.pos.y - 4; h < v.pos.y + 160; h += 12) {
+      if (!insideSolid(x, z, h)) break;
+      want = Math.max(want, h + 18);
+    }
+  }
+  const speed = v.vel.dot(fwd);
+  const cruise = want > v.pos.y + 6 ? 8 : v.spec.max * 0.45;
+  v.input.throttle = clamp((cruise - speed) * 0.3, -1, 1);
+  v.input.up = clamp((want - v.pos.y) * 0.25, -1, 1);
+  v.input.boost = false;
+  v.input.handbrake = false;
+};
+
 export const fillTraffic = p => {
   for (let k = 0; k < TRAFFIC * 2; k++) spawnTrafficNear(p, 20, 260);
   for (let k = 0; k < PARKED * 2; k++) parkNear(p, 15, 200);
+  for (let k = 0; k < SKY; k++) spawnSky(p, 40, 350);
 };
 
 let streamT = 0;
@@ -636,10 +683,13 @@ onUpdate(dt => {
       if ((v.dead || (v.driver === null && !v.mission && !v.keep)) && Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 300) removeVehicle(v);
     if (traffic().length < TRAFFIC) spawnTrafficNear(p, 140, 300);
     if (parked().length < PARKED) parkNear(p, 90, 220);
+    for (const v of sky()) if (Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 450) removeVehicle(v);
+    if (sky().length < SKY) spawnSky(p, 250, 400);
   }
   for (const v of vehicles) {
     if (v.inLoop) continue;
     if (v.driver === 'ai' && v.ai?.e && !v.dead && v.hp > 0) driveAI(v, dt);
+    else if (v.driver === 'sky' && !v.dead && v.hp > 0) skyDrive(v, dt);
     else if (v.driver === null || v.dead || v.hp <= 0) {
       v.input.throttle = 0;
       v.input.steer = 0;
