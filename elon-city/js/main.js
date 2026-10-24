@@ -14,6 +14,7 @@ import './loop.js';
 import './rocket.js';
 import { load, save, resetSave, jobNow, storyProgress } from './missions.js';
 import { hudFrame, clearTouchPresses, toggleMap } from './hud.js';
+import './film.js';   // cinematic film director — inert unless ?film is in the URL
 
 /* ---------------- loading ---------------- */
 const bar = $('loadBar');
@@ -157,6 +158,7 @@ applyTier();
 let last = performance.now();
 const frame = now => {
   requestAnimationFrame(frame);
+  if (G.film) return;   // the film director owns the loop (render + capture) under ?film
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (G.started) {

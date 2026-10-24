@@ -187,3 +187,6 @@ onUpdate(dt => {
       break;
     }
 }, 62);
+
+// For the film: a tunnel between two stations, without starting a ride.
+export const filmTunnel = (a, b) => build(stations[a], stations[b]);

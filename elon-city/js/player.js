@@ -915,4 +915,5 @@ onUpdate(dt => {
 }, 20);
 
 export const player = me;
+export { fireFlare };   // the film director fires it
 export { body as playerBody };

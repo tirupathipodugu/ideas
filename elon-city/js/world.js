@@ -336,7 +336,7 @@ export const onBridge = (x, z) => {
 export const isLand = (x, z) => !inWater(x, z) || onBridge(x, z);
 
 /* ---------------- roads, junctions and paint ---------------- */
-const asphaltMat = layer(pbr('asphalt', 1, { roughness: 1, envMapIntensity: 0.7 }), 3);
+const asphaltMat = layer(pbr('asphalt', 1, { roughness: 0.82, envMapIntensity: 1.35 }), 3);
 {
   const pos = [], uv = [], idx = [];
   const Y = 0.04;
@@ -571,10 +571,10 @@ wallMat.onBeforeCompile = sh => {
         diffuseColor.rgb += vec3(0.91, 0.61, 0.41) * 0.035 * smoothstep(14.0, 30.0, vW.y) * (1.0 - smoothstep(40.0, 75.0, vW.y));
       }`)
     .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-      roughnessFactor = mix(roughnessFactor, 0.14, glassK);
+      roughnessFactor = mix(roughnessFactor, 0.3, glassK);
       roughnessFactor = mix(roughnessFactor, 0.4, fac.y * isGlassWall);`)
     .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
-      metalnessFactor = glassK * 0.92 + fac.y * isGlassWall * 0.6;`)
+      metalnessFactor = glassK * 0.72 + fac.y * isGlassWall * 0.6;`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       normal = normalize(mix(normal, normalize(vNormal), max(glassK, fac.y)));`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -1034,16 +1034,19 @@ export const makeStarship = () => {
     uniforms: { uT: { value: 0 }, uK: { value: 1 } },
     transparent: true,
     depthWrite: false,
+    toneMapped: false,   // additive glow: never tone-map it (tone-mapping blackened the whole plume)
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform float uT; uniform float uK; varying vec2 vUv;
       void main(){
-        float along = vUv.y;
+        // clamp before pow(): a 0 or tiny-negative base made pow() return NaN, and NaN in this
+        // additive HDR pass poisoned the whole frame buffer black (the "black screen on launch").
+        float along = clamp(vUv.y, 0.0, 1.0);
         float flick = 0.85 + 0.15 * sin(uT * 60.0 + along * 30.0);
-        vec3 col = mix(vec3(1.0, 0.45, 0.12), vec3(1.0, 0.95, 0.85), pow(along, 3.0));
-        float a = pow(along, 1.6) * flick * uK;
-        gl_FragColor = vec4(col * 2.2, a);
+        vec3 col = mix(vec3(1.0, 0.45, 0.12), vec3(1.0, 0.95, 0.85), along * along * along);
+        float a = pow(max(along, 1e-4), 1.6) * flick * clamp(uK, 0.0, 1.0);
+        gl_FragColor = vec4(col * 2.2, clamp(a, 0.0, 1.0));
       }`,
   });
   const plume = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.85, R * 1.6, 46, 32, 1, true), plumeMat);
@@ -1489,6 +1492,7 @@ G.setNight = on => {
   mat.onBeforeCompile = motion;
   const im = new THREE.InstancedMesh(geo, mat, n);
   im.frustumCulled = false;
+  im.name = 'droneSwarm';
   scene.add(im);
   // Their nav lights.
   const g = new THREE.BufferGeometry();
@@ -1513,6 +1517,7 @@ G.setNight = on => {
   });
   const pts = new THREE.Points(g, pm);
   pts.frustumCulled = false;
+  pts.name = 'droneSwarmLights';
   scene.add(pts);
   onUpdate(() => (pm.uniforms.uPx.value = renderer.getPixelRatio()), 87);
 }
