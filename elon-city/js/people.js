@@ -46,7 +46,9 @@ export const loadPeople = () => {
 const LOOKS = {
   player: { model: 'soldier', tint: 0x55595f },
   cop: { model: 'soldier', tint: 0x6f86c9 },
-  civ: () => pick([{ model: 'michelle' }, { model: 'michelle' }, { model: 'xbot', optimus: true }, { model: 'soldier', tint: pick([0xc9a27a, 0x9fb38a, 0xb5b5b5, 0xd99a8a]) }]),
+  civ: () => pick([{ model: 'michelle' }, { model: 'michelle' }, { model: 'xbot', optimus: true }, { model: 'xbot', optimus: true }, { model: 'xbot', optimus: true }, { model: 'soldier', tint: pick([0xc9a27a, 0x9fb38a, 0xb5b5b5, 0xd99a8a]) }]),
+  // Rogue Optimus: dark shell, glowing red joints.
+  bot: { model: 'xbot', optimus: true, rogue: true },
 };
 
 const dress = h => {
@@ -69,6 +71,13 @@ const dress = h => {
       o.material.color = new THREE.Color(joint ? 0x16171a : 0xf2f3f5);
       o.material.metalness = joint ? 0.6 : 0.25;
       o.material.roughness = joint ? 0.4 : 0.25;
+      if (look.rogue) {
+        o.material.color = new THREE.Color(joint ? 0x400608 : 0x2b2d31);
+        if (joint) {
+          o.material.emissive = new THREE.Color(0xff1830);
+          o.material.emissiveIntensity = 2.2;
+        }
+      }
     }
     if (o.material.map) o.material.map.anisotropy = 4;
   });

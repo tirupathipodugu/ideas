@@ -161,6 +161,10 @@ export const sfx = {
     burst(2000, 0.6, 1.4, 'bandpass', 0.6);
   },
   whoosh: () => burst(800, 0.6, 0.8, 'bandpass', 0.5),
+  flare: () => {
+    burst(2600, 0.6, 0.45, 'highpass');
+    tone('sawtooth', 320, 80, 0.3, 0.08);
+  },
   star: () => tone('square', 440, 220, 0.3, 0.07),
   pass: () => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone('square', f, f, i === 5 ? 0.6 : 0.16, 0.09, i * 0.14)),
   fail: () => [392, 349, 311, 262].forEach((f, i) => tone('square', f, f, 0.3, 0.09, i * 0.22)),

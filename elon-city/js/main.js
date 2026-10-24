@@ -173,4 +173,5 @@ import * as V from './vehicles.js';
 import * as W from './world.js';
 import * as P from './player.js';
 import * as M from './missions.js';
-window.__ec = { V, W, P, M, camera };
+import * as PD from './peds.js';
+window.__ec = { V, W, P, M, PD, camera };

@@ -837,6 +837,10 @@ export const load = () => {
     G.done = s.done;
     G.weapons = s.weapons;
     G.ammo = s.ammo.map(a => (a === -1 ? Infinity : a));
+    if (G.weapons.length < 5) {
+      G.weapons[4] = true;
+      G.ammo[4] = 16;
+    }
     G.uplink = s.uplink;
     G.jobsDone = s.jobs;
     if (G.done.includes('flame')) unlockFlameCrate();

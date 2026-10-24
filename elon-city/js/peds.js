@@ -1,5 +1,5 @@
 // People: one low-poly body shared by pedestrians, police and the player; pedestrians walking the sidewalks.
-import { THREE, V3, scene, G, clamp, rnd, pick, wrapA, collide, onUpdate, damp } from './core.js';
+import { THREE, V3, scene, G, clamp, rnd, pick, wrapA, collide, onUpdate, damp, bus, clearLine } from './core.js';
 import { N, walkLoop, isLand } from './world.js';
 import { vehicles, fwdVec } from './vehicles.js';
 import { burning, sparks } from './fx.js';
@@ -10,7 +10,8 @@ export { makeHuman, animHuman };
 
 /* ---------------- pedestrians ---------------- */
 export const peds = [];
-const MAX_PEDS = 30;
+const MAX_PEDS = 34;
+const MAX_BOTS = 4;
 
 export const spawnPed = (x, z, opts = {}) => {
   const h = makeHuman({ kind: opts.kind ?? 'civ' });
@@ -60,7 +61,7 @@ const joinLoop = p => {
 export const hurtPed = (p, amt, from, by = null, knock = 0) => {
   if (p.state === 'dead') return;
   p.hp -= amt;
-  if (by === 'player') G.crime?.(p.kind === 'cop' ? 20 : 6);
+  if (by === 'player' && p.kind !== 'bot') G.crime?.(p.kind === 'cop' ? 20 : 6);
   if (knock > 0 && from) {
     const d = p.pos.clone().sub(from).setY(0).normalize();
     p.vel.copy(d.multiplyScalar(knock)).setY(knock * 0.4);
@@ -71,6 +72,14 @@ export const hurtPed = (p, amt, from, by = null, knock = 0) => {
     p.state = 'dead';
     p.t = 0;
     p.fire = 0;
+    if (p.kind === 'bot') {
+      sparks(p.pos.clone().setY(1.2), 40, 0xff3040);
+      if (by === 'player') {
+        G.money += 100;
+        G.botsDown = (G.botsDown || 0) + 1;
+        bus.toast(`Rogue Optimus down +$100 (${G.botsDown})`);
+      }
+    }
     G.onPedDown?.(p, by);
   } else if (p.state !== 'down' && p.kind === 'civ') {
     p.state = 'flee';
@@ -81,7 +90,7 @@ export const hurtPed = (p, amt, from, by = null, knock = 0) => {
 
 export const setOnFire = (p, by) => {
   if (p.state === 'dead') return;
-  if (p.fire <= 0 && by === 'player') G.crime?.(p.kind === 'cop' ? 20 : 8);
+  if (p.fire <= 0 && by === 'player' && p.kind !== 'bot') G.crime?.(p.kind === 'cop' ? 20 : 8);
   p.fire = Math.max(p.fire, 0.01);
   p.firedBy = by;
 };
@@ -115,6 +124,38 @@ G.bail = v => {
   const p = spawnPed(v.pos.x + side.x * 2, v.pos.z + side.z * 2, { state: 'flee' });
   p.from = v.pos.clone();
   return p;
+};
+
+// Rogue robots wander like everyone else until they spot you, then come for you.
+const botStep = (p, dt) => {
+  const me = G.playerTarget();
+  const dx = me.x - p.pos.x, dz = me.z - p.pos.z, d = Math.hypot(dx, dz);
+  if (p.state === 'walk' && G.mode === 'foot' && d < 36 && clearLine(p.pos.x, p.pos.z, me.x, me.z)) {
+    p.state = 'hunt';
+    p.t = 0;
+    sfx.taser();
+    if (!G.botWarned) {
+      G.botWarned = true;
+      bus.toast('Rogue Optimus coming for you! Flare Gun: press 5', 4);
+    }
+  }
+  if (p.state !== 'hunt') return null;
+  if (d > 60 || G.mode === 'dead' || G.mode === 'cutscene') {
+    p.state = 'walk';
+    p.loop = null;
+    return null;
+  }
+  p.yaw += wrapA(Math.atan2(dx, dz) - p.yaw) * Math.min(1, dt * 6);
+  p.cool = (p.cool ?? 0) - dt;
+  if (d < 1.7) {
+    if (p.cool <= 0 && G.mode === 'foot') {
+      p.cool = 0.9;
+      G.hurtPlayer(9, p.pos);
+      sfx.punch();
+    }
+    return { speed: 0, pose: 'punch' };
+  }
+  return { speed: 4.6, pose: 'stand' };
 };
 
 const stepPed = (p, dt) => {
@@ -161,7 +202,7 @@ const stepPed = (p, dt) => {
       p.vel.multiplyScalar(Math.exp(-6 * dt));
     }
     if (p.t > 2.5 && p.hp > 0) {
-      p.state = p.kind === 'civ' ? 'flee' : 'chase';
+      p.state = p.kind === 'civ' ? 'flee' : p.kind === 'bot' ? 'hunt' : 'chase';
       p.t = 0;
       p.vel.set(0, 0, 0);
     }
@@ -175,6 +216,10 @@ const stepPed = (p, dt) => {
     }
   }
   if (p.kind === 'cop' && p.state !== 'dead' && p.state !== 'down') ({ speed, pose } = G.copStep?.(p, dt) ?? { speed, pose });
+  if (p.kind === 'bot' && (p.state === 'walk' || p.state === 'hunt' || p.state === 'wait')) {
+    const r = botStep(p, dt);
+    if (r) ({ speed, pose } = r);
+  }
 
   if (speed > 0 && p.state !== 'down' && p.state !== 'dead') {
     p.pos.x += Math.sin(p.yaw) * speed * dt;
@@ -215,17 +260,20 @@ onUpdate(dt => {
     streamT = 0.5;
     for (const p of [...peds]) {
       const d = p.pos.distanceTo(me);
-      if (p.kind === 'civ' && (d > 170 || (p.state === 'dead' && p.t > 25 && d > 40))) removePed(p);
+      if ((p.kind === 'civ' || p.kind === 'bot') && (d > 170 || (p.state === 'dead' && p.t > 25 && d > 40))) removePed(p);
     }
     const civ = peds.filter(p => p.kind === 'civ').length;
-    if (civ < MAX_PEDS) {
+    const bots = peds.filter(p => p.kind === 'bot' && p.state !== 'dead').length;
+    const wantBot = bots < MAX_BOTS && G.t > 25;
+    if (civ < MAX_PEDS || wantBot) {
       const i = clamp(Math.floor((me.x + G.cityHALF) / (2 * G.cityHALF / N)) + Math.floor(rnd(-2, 3)), 0, N - 1);
       const j = clamp(Math.floor((me.z + G.cityHALF) / (2 * G.cityHALF / N)) + Math.floor(rnd(-2, 3)), 0, N - 1);
       const loop = walkLoop(i, j);
       const a = Math.floor(rnd(0, 4)), t = Math.random();
       const q = loop[a].clone().lerp(loop[(a + 1) % 4], t);
       if (q.distanceTo(me) > 35 || !G.started) {
-        const p = spawnPed(q.x, q.z);
+        const bot = wantBot && (civ >= MAX_PEDS || Math.random() < 0.3) && q.distanceTo(me) > 50;
+        const p = spawnPed(q.x, q.z, bot ? { kind: 'bot', hp: 70 } : {});
         p.loop = loop;
         p.li = (a + 1) % 4;
         p.dir = 1;

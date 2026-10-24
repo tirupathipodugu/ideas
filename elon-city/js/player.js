@@ -4,7 +4,7 @@ import { places, isLand, followSun, HALF } from './world.js';
 import { vehicles, nearestVehicle, hurtVehicle, fwdVec, rightVec, removeVehicle } from './vehicles.js';
 import { makeHuman, animHuman, peds, hurtPed, setOnFire, panic, spawnPed } from './peds.js';
 import { drones, hurtDrone } from './drones.js';
-import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust } from './fx.js';
+import { flame, bolt, beam, explode, sparks, splash, shake, addShake, dust, flareTrail } from './fx.js';
 import { sfx, audioFrame, nextStation } from './audio.js';
 
 export const WEAPONS = [
@@ -12,6 +12,7 @@ export const WEAPONS = [
   { name: 'Not-a-Flamethrower', icon: '🔥' },
   { name: 'Tesla Coil Gun', icon: '⚡' },
   { name: 'Starlink Strike', icon: '🛰' },
+  { name: 'Flare Gun', icon: '🎇' },
 ];
 
 const me = { pos: places.spawn.clone(), yaw: Math.PI, vy: 0, speed: 0, punch: 0, coolCoil: 0, coolStrike: 0, hurtT: 0, swim: 0, deadT: 0, portalCool: 0, lastHit: 0 };
@@ -32,14 +33,30 @@ const gun = new THREE.Group();
   gun.add(tube, tank);
   scene.add(gun);
 }
+// The flare gun: a chunky orange pistol with a wide barrel.
+const flareGun = new THREE.Group();
+{
+  const orange = new THREE.MeshStandardMaterial({ color: 0xff6a1a, roughness: 0.45 });
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.32, 14), orange);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = 0.14;
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.08), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 }));
+  grip.position.set(0, -0.1, 0);
+  grip.rotation.x = -0.3;
+  flareGun.add(barrel, grip);
+  flareGun.visible = false;
+  scene.add(flareGun);
+}
 const _hand = new V3();
 // The gun sits in the right hand and points where you aim.
 const placeGun = () => {
-  if (!gun.visible) return;
+  if (!gun.visible && !flareGun.visible) return;
   if (body.hand) body.hand.getWorldPosition(_hand);
   else _hand.copy(me.pos).add(new V3(0.3, 1.1, 0.3));
-  gun.position.copy(_hand);
-  gun.rotation.set(0, me.yaw, 0);
+  for (const g of [gun, flareGun]) {
+    g.position.copy(_hand);
+    g.rotation.set(0, me.yaw, 0);
+  }
 };
 
 /* ---------------- damage and death ---------------- */
@@ -91,6 +108,22 @@ const respawn = () => {
 
 /* ---------------- getting in and out ---------------- */
 const enterCar = v => {
+  // Driverless Cybercab: hop in the back and it keeps driving wherever it was going.
+  if (v.type === 'cybercab' && v.driver === 'ai' && v.ai && !v.mission) {
+    G.ride = v;
+    v.passenger = true;
+    v.stopReq = false;
+    v.rideFrom = v.pos.clone();
+    v.rideDist = 0;
+    G.car = v;
+    G.mode = 'car';
+    body.root.visible = false;
+    sfx.door();
+    look.idle = 99;
+    bus.vehicle?.(v);
+    bus.toast(IS_MOBILE ? 'Robotaxi: enjoy the ride. ENTER to stop, FLY to take the wheel' : 'Robotaxi: enjoy the ride. F to stop and get out, T to take the wheel', 4);
+    return;
+  }
   if (v.driver === 'ai') {
     // Carjacking: the driver is pulled out and runs.
     v.driver = null;
@@ -124,6 +157,29 @@ const enterCar = v => {
 const leaveCar = (force = false) => {
   const v = G.car;
   if (!v) return;
+  if (G.ride === v) {
+    // Pull over first unless we must jump out.
+    if (!force && v.vel.length() > 1.2) {
+      if (!v.stopReq) bus.toast('Robotaxi pulling over…');
+      v.stopReq = true;
+      return;
+    }
+    const fare = Math.min(G.money, 5 + Math.round(v.rideDist * 0.08));
+    G.money -= fare;
+    bus.toast(`Robotaxi fare $${fare}. Thanks for riding!`);
+    v.passenger = false;
+    v.stopReq = false;
+    G.ride = null;
+    const side = rightVec(v.yaw, new V3()).multiplyScalar(v.spec.wid / 2 + 0.9);
+    me.pos.copy(v.pos).add(side).setY(0);
+    me.yaw = v.yaw;
+    G.car = null;
+    G.mode = 'foot';
+    body.root.visible = true;
+    sfx.door();
+    bus.vehicle?.(null);
+    return;
+  }
   if (!force && v.pos.y > 2.5) {
     bus.toast('Land first: hold C to come down');
     return;
@@ -242,6 +298,75 @@ const fireCoil = () => {
   panic(to, 30);
 };
 
+// Flare gun: a burning flare arcs out, sticks, sets people alight and bursts. Rogue robots go down in two.
+const flares = [];
+const GRAV = 9;
+const fireFlare = () => {
+  if (me.coolFlare > 0) return;
+  if (G.ammo[4] <= 0) return bus.toast('Out of flares: rogue robots drop them');
+  me.coolFlare = 0.6;
+  G.ammo[4]--;
+  const from = G.mode === 'car' ? G.car.pos.clone().setY(G.car.pos.y + G.car.spec.h + 0.6) : handPos();
+  const dir = G.mode === 'car' ? fwdVec(G.car.yaw, new V3()).setY(0.05).normalize() : aimDir();
+  const speed = 42;
+  const vel = dir.clone().multiplyScalar(speed);
+  // Lob it onto whatever you are roughly pointing at.
+  const t = autoAim(from, dir, 70, 0.3);
+  if (t) {
+    const to = t.at.clone().sub(from);
+    const time = to.length() / speed;
+    vel.copy(to).divideScalar(time);
+    vel.y += 0.5 * GRAV * time;
+  } else vel.y += 3;
+  const light = new THREE.PointLight(0xff3050, 60, 22, 1.6);
+  light.position.copy(from);
+  scene.add(light);
+  flares.push({ pos: from.clone(), vel, life: 4, light, by: G.mode === 'car' ? G.car : null });
+  sfx.flare();
+  panic(me.pos, 20);
+};
+const burstFlare = (f, direct) => {
+  const at = f.pos.clone();
+  scene.remove(f.light);
+  f.light.dispose();
+  explode(at, 0.4);
+  sparks(at, 30, 0xff3050);
+  sfx.boom(0.55);
+  addShake(0.25);
+  if (direct?.kind === 'ped') {
+    hurtPed(direct.o, direct.o.kind === 'bot' ? 45 : 30, at, 'player', 6);
+    setOnFire(direct.o, 'player');
+  } else if (direct?.kind === 'car') hurtVehicle(direct.o, 30, 'player');
+  else if (direct?.kind === 'drone') hurtDrone(direct.o, 60, 'player');
+  for (const p of peds) if (p.state !== 'dead' && p.pos.distanceTo(at) < 4) setOnFire(p, 'player');
+  G.onExplosion(at, 4.5, { byPlayer: true });
+};
+const stepFlares = dt => {
+  for (let i = flares.length - 1; i >= 0; i--) {
+    const f = flares[i];
+    f.life -= dt;
+    f.vel.y -= GRAV * dt;
+    f.pos.addScaledVector(f.vel, dt);
+    f.light.position.copy(f.pos);
+    f.light.intensity = 50 + Math.random() * 30;
+    flareTrail(f.pos);
+    let direct = null;
+    for (const t of targets()) {
+      if (t.o === f.by) continue;
+      const r = t.kind === 'car' ? 2.2 : t.kind === 'drone' ? 1.6 : 1.1;
+      if (t.at.distanceTo(f.pos) < r) {
+        direct = t;
+        break;
+      }
+    }
+    const wall = solids.some(s => s.h > f.pos.y && f.pos.x > s.minx && f.pos.x < s.maxx && f.pos.z > s.minz && f.pos.z < s.maxz);
+    if (direct || wall || f.pos.y < 0.15 || f.life <= 0) {
+      burstFlare(f, direct);
+      flares.splice(i, 1);
+    }
+  }
+};
+
 // Starlink Strike: mark a spot, and a beam from orbit lands on it.
 const reticle = new THREE.Mesh(new THREE.RingGeometry(3.5, 4.2, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7fe0ff).multiplyScalar(2), transparent: true, side: THREE.DoubleSide, toneMapped: false }));
 reticle.rotation.x = -Math.PI / 2;
@@ -294,8 +419,9 @@ const punch = () => {
 
 const switchWeapon = d => {
   let w = G.weapon;
-  for (let k = 0; k < 4; k++) {
-    w = (w + d + 4) % 4;
+  const n = WEAPONS.length;
+  for (let k = 0; k < n; k++) {
+    w = (w + d + n) % n;
     if (G.weapons[w]) break;
   }
   G.weapon = w;
@@ -310,6 +436,7 @@ const PICK = {
   armor: { color: 0x7fb7ff, label: 'Armour glass +50', icon: '🛡' },
   fuel: { color: 0xff7a2a, label: 'Not-a-Flamethrower fuel', icon: '🔥' },
   coil: { color: 0xbfe6ff, label: 'Tesla Coil Gun +20 charges', icon: '⚡' },
+  flare: { color: 0xff3050, label: 'Flares +6', icon: '🎇' },
   cash: { color: 0xffd23c, label: '', icon: '$' },
 };
 export const addPickup = (kind, at, opts = {}) => {
@@ -341,6 +468,10 @@ const take = p => {
     G.weapons[1] = true;
     G.ammo[1] = 100;
     sfx.coin();
+  } else if (k === 'flare') {
+    G.weapons[4] = true;
+    G.ammo[4] = Math.min(40, G.ammo[4] + 6);
+    sfx.coin();
   } else if (k === 'coil') {
     G.weapons[2] = true;
     G.ammo[2] = Math.min(99, G.ammo[2] + 20);
@@ -357,6 +488,7 @@ const take = p => {
   return true;
 };
 G.onPedDown = (p, by) => {
+  if (p.kind === 'bot') return void addPickup('flare', p.pos.clone().add(new V3(0.8, 0, 0)), { temp: true });
   if (Math.random() < 0.6) addPickup('cash', p.pos, { amount: Math.round(rnd(5, 60)), temp: true });
   G.onKill?.(p, by);
 };
@@ -370,6 +502,9 @@ const spots = [
   ['armor', places.starlink.clone().add(new V3(-12, 0, 0))],
   ['coil', places.starlink.clone().add(new V3(12, 0, 0))],
   ['coil', places.lot.clone().add(new V3(0, 0, 10))],
+  ['flare', places.giga.clone().add(new V3(12, 0, -6))],
+  ['flare', places.park.clone().add(new V3(-8, 0, 8))],
+  ['flare', places.police.clone().add(new V3(-10, 0, 0))],
 ];
 for (const [k, at] of spots) addPickup(k, at, { respawn: 60 });
 export const unlockFlameCrate = () => addPickup('fuel', places.boring.clone().add(new V3(4, 0, 0)), { respawn: 40 });
@@ -505,28 +640,65 @@ const footStep = dt => {
 
   // Weapons.
   if (hit('KeyQ') || touch.swapPressed) switchWeapon(1);
-  for (let i = 0; i < 4; i++) if (hit('Digit' + (i + 1)) && G.weapons[i]) (G.weapon = i), bus.weapon?.();
+  for (let i = 0; i < WEAPONS.length; i++) if (hit('Digit' + (i + 1)) && G.weapons[i]) (G.weapon = i), bus.weapon?.();
   let flaming = false;
   if (G.weapon === 0 && firePressed()) punch();
   if (G.weapon === 1 && firing()) flaming = fireFlame(dt);
   if (G.weapon === 2 && firing()) fireCoil();
   if (G.weapon === 3 && firePressed()) fireStrike();
+  if (G.weapon === 4 && firePressed()) fireFlare();
   me.flaming = flaming;
   gun.visible = G.mode === 'foot' && (G.weapon === 1 || G.weapon === 2);
+  flareGun.visible = G.mode === 'foot' && G.weapon === 4;
   me.punch -= dt;
 
   // Get in.
+  const near = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && v.pos.y < 2 && !v.dead);
+  if (near && near !== me.hintCar && G.t - (me.hintT || -9) > 3) {
+    me.hintCar = near;
+    me.hintT = G.t;
+    const key = IS_MOBILE ? 'ENTER' : 'F';
+    bus.toast(near.type === 'cybercab' && near.driver === 'ai' && !near.mission ? `${key}: ride the Robotaxi` : `${key}: take the ${near.name}`, 1.8);
+  }
   if (hit('KeyE') || hit('KeyF') || touch.enterPressed) {
-    const v = nearestVehicle(me.pos, 2.2, v => v.sink === 0 && v.pos.y < 2);
+    const v = nearestVehicle(me.pos, 2.6, v => v.sink === 0 && v.pos.y < 2);
     if (v) enterCar(v);
   }
   body.root.position.copy(me.pos);
   body.root.rotation.y = me.yaw;
-  animHuman(body, me.speed, dt, me.punch > 0 ? 'punch' : (G.weapon > 0 && firing()) ? 'aim' : 'stand');
+  animHuman(body, me.speed, dt, me.punch > 0 ? 'punch' : (G.weapon > 0 && firing()) || (G.weapon === 4 && me.coolFlare > 0.2) ? 'aim' : 'stand');
   placeGun();
 };
 
+const rideStep = dt => {
+  const v = G.car;
+  v.rideDist += v.vel.length() * dt;
+  if (hit('KeyE') || hit('KeyF') || touch.enterPressed) leaveCar();
+  if (v.stopReq && v.vel.length() < 1.2) leaveCar();
+  if ((hit('KeyT') || touch.flyPressed) && G.ride === v) {
+    // Take over: the cab is yours to drive now.
+    G.ride = null;
+    v.passenger = false;
+    v.stopReq = false;
+    v.driver = 'player';
+    v.ai = null;
+    bus.toast('You took the wheel');
+    bus.vehicle?.(v);
+    return;
+  }
+  if (G.weapon === 4 && firePressed()) fireFlare();
+  if (G.weapon === 3 && firePressed()) fireStrike();
+  if (hit('KeyQ') || touch.swapPressed) switchWeapon(1);
+  if (v.dead || v.fire > 0) {
+    leaveCar(true);
+    if (v.dead) G.hurtPlayer(60);
+    return;
+  }
+  me.pos.copy(v.pos);
+};
+
 const carStep = dt => {
+  if (G.ride === G.car) return rideStep(dt);
   const v = G.car;
   const a = axis();
   const inp = v.input;
@@ -549,6 +721,7 @@ const carStep = dt => {
     panic(v.pos, 12);
   }
   if (G.weapon === 3 && firePressed()) fireStrike();
+  if (G.weapon === 4 && firePressed()) fireFlare();
   if (hit('KeyQ') || touch.swapPressed) switchWeapon(1);
   if (hit('KeyE') || hit('KeyF') || touch.enterPressed) leaveCar();
   if (v.dead) {
@@ -627,11 +800,12 @@ const placeCamera = dt => {
 onUpdate(dt => {
   if (!G.started) return;
   me.coolCoil -= dt;
+  me.coolFlare = (me.coolFlare || 0) - dt;
   me.coolStrike = Math.max(0, me.coolStrike - dt);
   me.hurtT -= dt;
   G.hide = Math.max(0, (G.hide || 0) - dt);
   if (hit('KeyR') || touch.radioPressed) bus.toast(nextStation());
-  if (G.mode !== 'foot') gun.visible = false;
+  if (G.mode !== 'foot') gun.visible = flareGun.visible = false;
   if (G.mode === 'foot') footStep(dt);
   else if (G.mode === 'car' && G.car) carStep(dt);
   else if (G.mode === 'dead') {
@@ -642,6 +816,7 @@ onUpdate(dt => {
   // Health comes back slowly when nothing has hurt you for a while.
   if (G.mode !== 'dead' && G.t - me.lastHit > 8 && G.health < 50) G.health = Math.min(50, G.health + dt * 2);
   stepStrike(dt);
+  stepFlares(dt);
   stepPickups(dt);
   if (G.mode !== 'dead' && G.mode !== 'cutscene') stepPlaces(dt);
   if (G.mode !== 'cutscene') placeCamera(dt);

@@ -73,8 +73,8 @@ export const G = {
   mode: 'foot',     // 'foot' | 'car' | 'cutscene' | 'dead'
   car: null,        // the vehicle the player drives
   weapon: 0,
-  weapons: [true, false, false, false], // fists, flamethrower, coil gun, starlink strike
-  ammo: [Infinity, 0, 0, 0],
+  weapons: [true, false, false, false, true], // fists, flamethrower, coil gun, starlink strike, flare gun
+  ammo: [Infinity, 0, 0, 0, 16],
   uplink: false,    // Starlink mission done: full minimap
   mission: null,
   done: [],         // finished mission ids

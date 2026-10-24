@@ -482,6 +482,8 @@ const driveAI = (v, dt) => {
     if (ahead > 0 && ahead < 14 && side < 2.6) target = Math.min(target, ahead < 7 ? 0 : 5);
   }
   if (G.blocking?.(v, fwd)) target = 0;
+  // A passenger asked to get out.
+  if (v.stopReq) target = 0;
   const speed = v.vel.dot(fwd);
   v.input.throttle = clamp((target - speed) * 0.4, -1, 1);
   v.input.handbrake = false;
@@ -496,7 +498,8 @@ const driveAI = (v, dt) => {
 };
 
 /* ---------------- streaming traffic around the player ---------------- */
-const TRAFFIC = 16;
+const TRAFFIC = 20;
+const PARKED = 10;
 const traffic = () => vehicles.filter(v => v.driver === 'ai' && !v.mission);
 const spawnTrafficNear = (p, minR, maxR) => {
   for (let tries = 0; tries < 20; tries++) {
@@ -504,7 +507,8 @@ const spawnTrafficNear = (p, minR, maxR) => {
     const d = Math.hypot(n.x - p.x, n.z - p.z);
     if (d < minR || d > maxR) continue;
     const r = Math.random();
-    const type = r < 0.6 ? 'modely' : r < 0.75 ? 'cybertruck' : r < 0.85 ? 'semi' : r < 0.95 ? 'cybercab' : 'roadster';
+    // Lots of driverless Cybercabs: hop in any of them for a ride.
+    const type = r < 0.42 ? 'modely' : r < 0.56 ? 'cybertruck' : r < 0.64 ? 'semi' : r < 0.93 ? 'cybercab' : 'roadster';
     const v = spawnVehicle(type, n.x, n.z, 0, { driver: 'ai' });
     startAI(v, n);
     const lt = laneTarget(v, 0);
@@ -515,8 +519,30 @@ const spawnTrafficNear = (p, minR, maxR) => {
   }
 };
 
+// Cars parked along the curbs, free to take.
+const parked = () => vehicles.filter(v => v.parked && v.driver === null && !v.dead);
+const parkNear = (p, minR, maxR) => {
+  for (let tries = 0; tries < 20; tries++) {
+    const n = pick(nodes);
+    const [di, dj] = pick(dirs);
+    const m = nodeAt(n.i + di, n.j + dj);
+    if (!m) continue;
+    const t = rnd(0.3, 0.7), side = pick([-1, 1]);
+    const x = lerp(n.x, m.x, t) - dj * 7.4 * side, z = lerp(n.z, m.z, t) + di * 7.4 * side;
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d < minR || d > maxR || !isLand(x, z)) continue;
+    if (vehicles.some(o => Math.hypot(o.pos.x - x, o.pos.z - z) < 7)) continue;
+    const r = Math.random();
+    const type = r < 0.5 ? 'modely' : r < 0.75 ? 'cybertruck' : r < 0.9 ? 'roadster' : 'semi';
+    const v = spawnVehicle(type, x, z, Math.atan2(di, dj) + (side < 0 ? Math.PI : 0));
+    v.parked = true;
+    return v;
+  }
+};
+
 export const fillTraffic = p => {
   for (let k = 0; k < TRAFFIC; k++) spawnTrafficNear(p, 20, 260);
+  for (let k = 0; k < PARKED; k++) parkNear(p, 15, 200);
 };
 
 let streamT = 0;
@@ -531,6 +557,7 @@ onUpdate(dt => {
     for (const v of [...vehicles])
       if ((v.dead || (v.driver === null && !v.mission && !v.keep)) && Math.hypot(v.pos.x - p.x, v.pos.z - p.z) > 300) removeVehicle(v);
     if (traffic().length < TRAFFIC) spawnTrafficNear(p, 160, 300);
+    if (parked().length < PARKED) parkNear(p, 90, 220);
   }
   for (const v of vehicles) {
     if (v.driver === 'ai' && v.ai && !v.dead && v.hp > 0) driveAI(v, dt);

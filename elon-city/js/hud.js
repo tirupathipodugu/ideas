@@ -59,7 +59,10 @@ bus.weapon = () => {
 bus.vehicle = v => {
   $('veh').textContent = v ? v.name : '';
   document.body.classList.toggle('driving', !!v);
-  document.body.classList.toggle('canfly', !!v?.spec.canFly);
+  document.body.classList.toggle('canfly', !!v?.spec.canFly || (!!v && G.ride === v));
+  // In a Robotaxi the FLY button takes the wheel instead.
+  const fly = document.querySelector('.tbtn[data-k=fly]');
+  if (fly) fly.textContent = v && G.ride === v ? 'DRIVE' : 'FLY';
 };
 
 /* ---------------- minimap ---------------- */
@@ -137,6 +140,7 @@ const drawMini = () => {
   };
   for (const v of vehicles) if (v.driver === 'cop') dot(v.pos.x, v.pos.z, 4, Math.floor(G.t * 6) % 2 ? '#ff3040' : '#2a7bff', true);
   for (const d of drones) if (!d.dead) dot(d.pos.x, d.pos.z, 3, d.police ? '#4da3ff' : '#ff3a4a', true);
+  for (const p of peds) if (p.kind === 'bot' && p.state !== 'dead') dot(p.pos.x, p.pos.z, 3, '#ff2a3a', true);
   mg.restore();
   // Blips: clamp to the edge when off the map.
   const rot = look.yaw - Math.PI;

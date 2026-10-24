@@ -109,6 +109,12 @@ export const sparks = (at, n = 12, color = 0xffd27a) => {
   for (let k = 0; k < n; k++) glow.emit(at, new V3(rnd(-8, 8), rnd(2, 10), rnd(-8, 8)), { life: rnd(0.3, 0.7), s0: 0.35, s1: 0.1, c0: 0xffffff, c1: color, g: -18 });
 };
 
+// A flare in flight: a white-hot core with a pink-red tail and drifting smoke.
+export const flareTrail = at => {
+  for (let k = 0; k < 2; k++) glow.emit(at, new V3(rnd(-0.6, 0.6), rnd(-0.2, 0.8), rnd(-0.6, 0.6)), { life: rnd(0.3, 0.6), s0: 1.3, s1: 0.2, c0: 0xffffff, c1: 0xff2a50, a0: 1, a1: 0 });
+  if (Math.random() < 0.6) smoke.emit(at, new V3(rnd(-0.4, 0.4), 1.2, rnd(-0.4, 0.4)), { life: 1.6, s0: 0.5, s1: 2.8, c0: 0xffb0bc, c1: 0x6a4a50, a0: 0.35, a1: 0 });
+};
+
 export const dust = (at, n = 3) => {
   for (let k = 0; k < n; k++) smoke.emit(at, new V3(rnd(-2, 2), rnd(0.5, 2), rnd(-2, 2)), { life: rnd(0.8, 1.4), s0: 1, s1: 4, c0: 0xc9b6a8, a0: 0.35, a1: 0 });
 };
