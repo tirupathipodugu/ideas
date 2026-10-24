@@ -1274,8 +1274,8 @@ const nightSky = (() => {
   c.height = H;
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#020510');
-  grad.addColorStop(0.3, '#040a1f');
+  grad.addColorStop(0, '#050c22');
+  grad.addColorStop(0.3, '#071030');
   grad.addColorStop(0.42, '#0b1634');
   grad.addColorStop(0.48, '#1d2448');
   grad.addColorStop(0.5, '#3a2f45');
@@ -1361,14 +1361,14 @@ G.setNight = on => {
     votes[Math.floor(a)] += e.len;
   }
   const gridA = (votes.indexOf(Math.max(...votes)) * Math.PI) / 180;
-  const LANES = 160, PER = 24, n = LANES * PER;
+  const LANES = 300, PER = 28, n = LANES * PER;
   const lane = new Float32Array(n * 4), alt = new Float32Array(n * 2), col = new Float32Array(n * 3);
   const PAINT = [0xf4f4f4, 0x15171c, 0xc8102e, 0xb9bec6, 0xffc935, 0x1f5fd1, 0xf4f4f4, 0x9aa1aa];
   const c = new THREE.Color();
   let i = 0;
   for (let l = 0; l < LANES; l++) {
     const cross = l % 2, a = gridA + (cross ? Math.PI / 2 : 0) + (l % 4 >= 2 ? Math.PI : 0);
-    const off = srnd(-1000, 1000), h = 120 + Math.floor(srnd(0, 13)) * 34;
+    const off = srnd(-1100, 1100), h = 110 + Math.floor(srnd(0, 26)) * 36;
     const sp = srnd(26, 46);
     // Lane origin: the city centre, shifted sideways.
     const ox = Math.cos(a) * off, oz = -Math.sin(a) * off;
@@ -1451,4 +1451,68 @@ G.setNight = on => {
     onUpdate(() => (m.uniforms.uPx.value = renderer.getPixelRatio()), 88);
   }
   onUpdate(() => (skyLaneT.value = G.t), 89);
+}
+
+// Drone swarms: thousands of quadcopters loitering over downtown, blinking red and green at night.
+{
+  const n = 3000;
+  const ctr = new Float32Array(n * 4), orb = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    ctr.set([srnd(-1300, 1300), srnd(-1300, 1300), srnd(45, 520), srnd(0, 6.28)], i * 4);
+    orb.set([srnd(20, 160), srnd(4, 30), srnd(0.05, 0.22) * (srnd() < 0.5 ? -1 : 1), srnd(0, 100)], i * 4);
+  }
+  const uT = skyLaneT;
+  const VS = `
+    attribute vec4 ctr; attribute vec4 orb;
+    vec3 dronePos(out float yaw){
+      float a = ctr.w + uT * orb.z;
+      vec3 p = vec3(ctr.x + cos(a) * orb.x, ctr.z + sin(a * 1.7 + orb.w) * orb.y, ctr.y + sin(a) * orb.x);
+      yaw = atan(-sin(a) * orb.z, cos(a) * orb.z) + 1.5708;
+      return p;
+    }`;
+  const motion = sh => {
+    sh.uniforms.uT = uT;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uT;' + VS)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        { float yw; vec3 at = dronePos(yw); float c = cos(yw), s = sin(yw);
+          transformed = vec3(transformed.x * c + transformed.z * s, transformed.y, -transformed.x * s + transformed.z * c) + at; }`);
+  };
+  // A quadcopter: body, two crossed arms, four rotor discs.
+  const parts = [new THREE.BoxGeometry(0.5, 0.18, 0.5), new THREE.BoxGeometry(1.7, 0.06, 0.08).rotateY(Math.PI / 4), new THREE.BoxGeometry(1.7, 0.06, 0.08).rotateY(-Math.PI / 4)];
+  for (const [x, z] of [[0.6, 0.6], [-0.6, 0.6], [0.6, -0.6], [-0.6, -0.6]]) parts.push(new THREE.CylinderGeometry(0.32, 0.32, 0.02, 10).translate(x, 0.08, z));
+  const geo = mergeGeometries(parts.map(g => (g.deleteAttribute('uv'), g.toNonIndexed())));
+  geo.scale(1.6, 1.6, 1.6);
+  geo.setAttribute('ctr', new THREE.InstancedBufferAttribute(ctr, 4));
+  geo.setAttribute('orb', new THREE.InstancedBufferAttribute(orb, 4));
+  const mat = new THREE.MeshStandardMaterial({ color: 0x24272d, roughness: 0.5, metalness: 0.5 });
+  mat.onBeforeCompile = motion;
+  const im = new THREE.InstancedMesh(geo, mat, n);
+  im.frustumCulled = false;
+  scene.add(im);
+  // Their nav lights.
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  g.setAttribute('ctr', new THREE.BufferAttribute(ctr, 4));
+  g.setAttribute('orb', new THREE.BufferAttribute(orb, 4));
+  const pm = new THREE.ShaderMaterial({
+    uniforms: { uT, uNight: nightU, uPx: { value: 1 } },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: 'uniform float uT; uniform float uNight; uniform float uPx; varying vec3 vC;' + VS + `
+      void main(){
+        float yw; vec3 at = dronePos(yw);
+        vec4 mv = viewMatrix * vec4(at, 1.0);
+        float blink = step(0.5, fract(uT * 1.3 + orb.w));
+        vC = fract(orb.w * 3.7) > 0.5 ? vec3(1.0, 0.12, 0.1) : vec3(0.15, 1.0, 0.35);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = mix(0.35, 1.0, uNight) * (0.5 + blink) * clamp(500.0 / -mv.z, 1.2, 5.0) * uPx;
+      }`,
+    fragmentShader: 'varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.1, d); if (a < 0.02) discard; gl_FragColor = vec4(vC * 1.5, a); }',
+  });
+  const pts = new THREE.Points(g, pm);
+  pts.frustumCulled = false;
+  scene.add(pts);
+  onUpdate(() => (pm.uniforms.uPx.value = renderer.getPixelRatio()), 87);
 }
