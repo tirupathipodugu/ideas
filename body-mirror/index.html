@@ -1,0 +1,139 @@
+<!doctype html>
+<!-- Body Mirror: Macro Mirror for the whole body. Tell it what you eat and how you train; watch your own live body change over 1 month, 1 year and 10 years. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
+<title>Body Mirror</title>
+<meta name="description" content="See where your plate is taking your body: your own live body over 1 month, 1 year and 10 years. Runs in your browser; your camera never leaves your device.">
+<meta name="theme-color" content="#050506">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 fill=%22%23050506%22/%3E%3Ccircle cx=%2216%22 cy=%227%22 r=%223%22 fill=%22none%22 stroke=%22%23d8dce4%22 stroke-width=%221.2%22/%3E%3Cpath d=%22M10 12h12l-1.5 9h-9z M13 21l-1 8 M19 21l1 8%22 fill=%22none%22 stroke=%22%23d8dce4%22 stroke-width=%221.2%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<section class="screen" id="landing">
+  <div class="center">
+    <h1 class="mark">Body Mirror</h1>
+    <p class="tagline">See where your plate is taking your body.</p>
+    <button class="primary" id="open" type="button">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="5" r="2.2"/><path d="M8 9h8l-1 7H9z M10 16l-.8 5.5 M14 16l.8 5.5"/></svg>
+      Open the mirror
+    </button>
+    <p class="quiet">Your camera never leaves this device. Stand back so your body from head to knees is in view.</p>
+  </div>
+  <div class="foot">
+    <p>For adults 18+. An illustration from a simple energy-balance model, not a prediction or medical advice. It never shows you below a healthy weight.</p>
+    <p>If you have, or have had, an eating disorder, please skip this one. <a href="https://findahelpline.com/topics/eating-body-image" rel="noopener" target="_blank">Find support near you</a>.</p>
+    <p class="credit"><a href="../macro-mirror/">Face only: Macro Mirror</a> · <a href="https://x.com/tirupathipodugu">@tirupathipodugu</a></p>
+  </div>
+</section>
+
+<section class="screen" id="error" hidden role="alert">
+  <div class="center">
+    <h1 class="mark">Body Mirror</h1>
+    <p class="message" id="error-text"></p>
+    <p class="row"><button class="primary" id="retry" type="button">Try again</button></p>
+  </div>
+</section>
+
+<main class="stage" id="stage" hidden>
+  <canvas id="view" aria-label="Your body in the mirror" role="img"></canvas>
+  <canvas id="debug" hidden aria-hidden="true"></canvas>
+  <p class="status pill" id="status" role="status">Starting the camera…</p>
+
+  <header class="top">
+    <span class="mark pill title">Body Mirror</span>
+    <div class="pill bar">
+      <button class="control" id="sound" type="button" aria-pressed="true">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-when="on"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-when="off"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+        <span id="sound-label">Sound on</span>
+      </button>
+      <button class="control" id="info" type="button" aria-label="How the numbers work">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle class="fill" cx="12" cy="7.8" r="1"/></svg><span>Info</span>
+      </button>
+      <button class="control" id="close" type="button" aria-label="Close the mirror">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Close</span>
+      </button>
+    </div>
+  </header>
+
+  <section class="readout pill" aria-live="polite">
+    <p class="kcal" id="kcal">About <strong>+0 kcal/day</strong> over what you burn</p>
+    <p class="caption" id="caption">Today. This is you, right now.</p>
+    <p class="numbers" id="numbers"></p>
+  </section>
+  <p class="stats pill" id="stats" hidden></p>
+
+  <footer class="bottom">
+    <div class="timeline pill">
+      <div class="stops" id="stops" aria-hidden="true"></div>
+      <input type="range" id="slider" min="0" max="6" step="0.01" value="0" aria-label="Time from today">
+    </div>
+    <div class="rows">
+      <div class="pill bar" role="radiogroup" aria-label="Which future">
+        <button class="control seg" id="fut-this" type="button" role="radio" aria-checked="true">This plate</button>
+        <button class="control seg" id="fut-better" type="button" role="radio" aria-checked="false">Better plate</button>
+      </div>
+      <div class="pill bar actions">
+        <button class="control" id="plate-open" type="button" aria-haspopup="dialog">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/></svg><span>Your plate</span>
+        </button>
+        <button class="control" id="hold" type="button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg><span>Hold: real you</span>
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <aside class="sheet" id="plate" hidden role="dialog" aria-modal="false" aria-labelledby="plate-title">
+    <header class="sheet-head">
+      <div>
+        <h2 id="plate-title">Your day on a plate</h2>
+        <p class="sheet-kcal" id="sheet-kcal"></p>
+      </div>
+      <button class="primary small" id="plate-done" type="button">Done</button>
+    </header>
+    <div class="sheet-body">
+      <p class="hint-text">Add everything you eat in a day, meals too. If the day adds up to more than you burn, your body gets fuller; less, and it gets leaner. <button class="linkbtn" id="plate-typical" type="button">Fill a typical day</button></p>
+      <div class="foods" id="foods"></div>
+      <h3>Activity</h3>
+      <div class="chips" id="activity" role="radiogroup" aria-label="Activity"></div>
+      <h3>Strength training</h3>
+      <p class="hint-text">Adds muscle slowly: shoulders, chest, arms and thighs fill out first.</p>
+      <div class="chips" id="training" role="radiogroup" aria-label="Strength training"></div>
+      <h3>About you</h3>
+      <p class="hint-text">Where your body changes depends on these. Used on this device only, never stored.</p>
+      <div class="chips" id="sex" role="radiogroup" aria-label="Sex"></div>
+      <div class="chips" id="age" role="radiogroup" aria-label="Age"></div>
+      <label class="range-row"><span>Height <output id="height-out">170 cm</output></span><input type="range" id="height" min="140" max="205" step="1" value="170"></label>
+      <label class="range-row"><span>Weight <output id="weight-out">72 kg</output></span><input type="range" id="weight" min="40" max="150" step="1" value="72"></label>
+      <h3>Mirror</h3>
+      <label class="switch-row"><input type="checkbox" id="trueview"> <span>True view (not mirrored)</span></label>
+      <label class="switch-row"><input type="checkbox" id="showstats" checked> <span>Show speed (frames per second)</span></label>
+      <label class="switch-row"><input type="checkbox" id="lite"> <span>Faster tracking (lite model)</span></label>
+    </div>
+  </aside>
+</main>
+
+<dialog class="modal" id="info-dialog" aria-labelledby="info-title">
+  <h2 id="info-title">How the numbers work</h2>
+  <p><strong>An illustration from a simple energy-balance model, not a prediction or medical advice.</strong></p>
+  <ul>
+    <li>Weight follows a simplified Hall model (<cite>The Lancet</cite>, 2011): in the long run about 1 kg for every 24 kcal a day over or under what you burn, about half of it in the first year.</li>
+    <li>That change splits into fat and lean tissue with the Forbes curve: the leaner you are, the more of it is lean tissue.</li>
+    <li>Fat goes where it really goes: the waist moves about 1 cm per kg (more in men), hips and thighs more in women, arms and neck a little, calves hardly at all. Turn side-on and the belly comes forward more than it spreads. Only the waist figure is measured in studies; the others are estimates.</li>
+    <li>Strength training adds muscle on a slowing beginner curve (about 0.3 kg a month at first at 4× a week, less for women), mostly to shoulders, chest, arms and thighs.</li>
+    <li>The body stops changing beyond +15 kg, never goes leaner than −8 kg, and never below a healthy weight (BMI 18.5).</li>
+    <li>Only you move. The background stays where it is; where a leaner body uncovers it, the gap is filled from the background next to you.</li>
+  </ul>
+  <p class="quiet">Everything runs on this device. Nothing is uploaded or stored. For adults 18+.</p>
+  <form method="dialog"><button class="primary" type="submit">Close</button></form>
+</dialog>
+
+<video id="camera" playsinline muted autoplay class="offscreen" aria-hidden="true"></video>
+</body>
+</html>
