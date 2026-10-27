@@ -2,15 +2,16 @@
 // bottom-left corner, grow as they drift, bounce off the edges and each other with a wobble, swell a
 // little at the end of their life and pop into droplets. Every bubble is a thin soap film: rainbow
 // interference colours that swirl and drain, a window highlight, and the live camera reflected
-// across its surface, see-through in the middle and stronger towards the rim like real glass.
+// across its surface, see-through in the middle and stronger towards the rim like real glass. Each
+// bubble shows the camera a fraction of a second late, every one from a slightly different moment.
 
 import { openCamera, cameraProblem, PROBLEMS } from './camera.js';
 import { createDemoFeed } from './demo-feed.js';
 import { createProgram } from './gl-utils.js';
 
-const MAX_BUBBLES = 18;
-const SPAWN_EVERY = [0.55, 1.1];       // seconds between new bubbles from the corner
-const LIFE = [7, 15];                  // seconds before a bubble starts to swell
+const MAX_BUBBLES = 34;
+const SPAWN_EVERY = [0.22, 0.5];       // seconds between new bubbles from the corner
+const LIFE = [5, 11];                  // seconds before a bubble starts to swell
 const SWELL_TIME = 0.7;                // the last breath before it pops
 const SWELL = 1.16;                    // how much bigger it gets before popping
 const POP_TIME = 0.14;                 // film tearing open
@@ -56,7 +57,7 @@ const BUBBLE_VS = `#version 300 es
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aBody;    // x, y (css px), radius, seed
 layout(location = 2) in vec4 aShape;   // squash, squash axis angle, pop progress, pop point angle
-layout(location = 3) in vec4 aLook;    // fade, shimmer, -, -
+layout(location = 3) in vec4 aLook;    // fade, shimmer, history layer, -
 uniform vec2 uStage;
 out vec2 vP;
 out vec4 vBody;
@@ -79,8 +80,7 @@ in vec2 vP;
 in vec4 vBody;
 in vec4 vShape;
 in vec4 vLook;
-uniform sampler2D uCam;
-uniform vec2 uCamScale;     // crops the camera to a centred square
+uniform highp sampler2DArray uCam;   // the last second of camera frames, already square
 uniform float uMirror;      // 1 for the front camera
 uniform float uTime;
 out vec4 outColor;
@@ -153,8 +153,8 @@ void main() {
   // with a little wobble where the film flows.
   vec2 m = p * (0.92 - 0.22 * (1.0 - z)) + swirl * 0.025;
   if (uMirror > 0.5) m.x = -m.x;
-  vec2 uv = 0.5 + 0.5 * m * uCamScale;
-  vec3 cam = texture(uCam, uv).rgb;
+  vec2 uv = 0.5 + 0.5 * m;
+  vec3 cam = texture(uCam, vec3(uv, vLook.z)).rgb;
   cam = pow(cam, vec3(0.9)) * 1.15;
   float camA = mix(0.20, 0.70, rim);
   vec3 col = cam * camA * mix(vec3(1.0), 0.55 + 0.9 * iri, 0.35);
@@ -207,9 +207,29 @@ void main() {
   outColor = vec4(vec3(0.85, 0.93, 1.0) * a + body * vAlpha * 0.4, a);
 }`;
 
+// Copies the newest camera frame, cropped to a centred square, into one layer of the history.
+const CAPTURE_FS = `#version 300 es
+precision mediump float;
+in vec2 vUv;
+uniform sampler2D uFrame;
+uniform vec2 uCropScale;
+out vec4 outColor;
+void main() {
+  outColor = vec4(texture(uFrame, 0.5 + (vUv - 0.5) * uCropScale).rgb, 1.0);
+}`;
+
 // ---------- GL setup ----------
 
-let bg, bubbleProgram, dropProgram, quadVao, dropVao, instanceBuffer, dropBuffer, camTexture;
+let bg, bubbleProgram, dropProgram, captureProgram, quadVao, dropVao, instanceBuffer, dropBuffer, camTexture;
+
+// Video history: a ring of square frames covering about the last second. Each bubble reads the frame
+// from its own moment in the past, so every bubble shows you a fraction of a second late.
+const HISTORY = 36;
+const HISTORY_SIZE = 320;
+const DELAY = [0.08, 0.9];            // seconds
+let history, historyFbo;
+const historyTimes = new Float64Array(HISTORY).fill(-1);
+let historyHead = -1;
 const FLOATS = 12;
 const instanceData = new Float32Array(MAX_BUBBLES * 2 * FLOATS);
 const dropData = new Float32Array(1024 * 4);
@@ -218,6 +238,16 @@ function setupGL() {
   bg = createProgram(gl, BACKGROUND_VS, BACKGROUND_FS);
   bubbleProgram = createProgram(gl, BUBBLE_VS, BUBBLE_FS);
   dropProgram = createProgram(gl, DROP_VS, DROP_FS);
+  captureProgram = createProgram(gl, BACKGROUND_VS, CAPTURE_FS);
+
+  history = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, history);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, HISTORY_SIZE, HISTORY_SIZE, HISTORY);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  historyFbo = gl.createFramebuffer();
 
   quadVao = gl.createVertexArray();
   gl.bindVertexArray(quadVao);
@@ -345,20 +375,21 @@ function blow(x, y, vx, vy, startR) {
   bubbles.push({
     x, y, vx, vy,
     r: startR,
-    target: u * rand(0.055, 0.135),
+    target: u * rand(0.045, 0.12),
     age: 0,
     life: rand(LIFE[0], LIFE[1]),
     seed: Math.random(),
     squash: 0, wobAmp: 0, wobT: 0, wobAxis: 0,
     pop: 0, popAngle: 0,
     shimmer: rand(0, 0.15),
+    delay: rand(DELAY[0], DELAY[1]),
   });
 }
 
 function spawnFromCorner() {
   const u = unit();
   const a = rand(-1.25, -0.3);               // up and to the right
-  const speed = u * rand(0.10, 0.22);
+  const speed = u * rand(0.22, 0.42);
   blow(u * 0.03 + rand(0, 10), H - u * 0.03 - rand(0, 10), Math.cos(a) * speed, Math.sin(a) * speed, u * rand(0.010, 0.02));
 }
 
@@ -417,7 +448,7 @@ function step(dt) {
     b.y += b.vy * dt;
     // Keep drifting at a lazy screensaver pace: never stall, never race.
     const sp = Math.hypot(b.vx, b.vy);
-    const want = Math.min(Math.max(sp, u * 0.06), u * 0.3);
+    const want = Math.min(Math.max(sp, u * 0.16), u * 0.5);
     if (sp > 0) { b.vx *= want / sp; b.vy *= want / sp; }
 
     // Edges.
@@ -491,10 +522,37 @@ async function startCamera() {
   }
 }
 
-function uploadFrame() {
+function uploadFrame(time) {
   if (!source || !source.takeFrame() || !source.width) return;
   gl.bindTexture(gl.TEXTURE_2D, camTexture);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source.element);
+
+  historyHead = (historyHead + 1) % HISTORY;
+  historyTimes[historyHead] = time;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, historyFbo);
+  gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, history, 0, historyHead);
+  gl.viewport(0, 0, HISTORY_SIZE, HISTORY_SIZE);
+  gl.useProgram(captureProgram.program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, camTexture);
+  gl.uniform1i(captureProgram.u.uFrame, 0);
+  const s = camScale();
+  gl.uniform2f(captureProgram.u.uCropScale, s[0], s[1]);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+/** The history layer closest to `delay` seconds ago (the oldest one we have, early on). */
+function layerFor(time, delay) {
+  const want = time - delay;
+  let best = Math.max(historyHead, 0), bestGap = Infinity;
+  for (let i = 0; i < HISTORY; i++) {
+    const t = historyTimes[i];
+    if (t < 0) continue;
+    const gap = Math.abs(t - want);
+    if (gap < bestGap) { bestGap = gap; best = i; }
+  }
+  return best;
 }
 
 function camScale() {
@@ -505,13 +563,12 @@ function camScale() {
 // ---------- Draw ----------
 
 function render(time) {
+  uploadFrame(time);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.disable(gl.BLEND);
   gl.useProgram(bg.program);
   gl.uniform2f(bg.u.uAspect, W / unit(), H / unit());
   gl.drawArrays(gl.TRIANGLES, 0, 3);
-
-  uploadFrame();
 
   // Pack the bubbles, smallest first so big ones sit on top.
   const order = bubbles.slice().sort((a, b) => a.r - b.r);
@@ -521,7 +578,7 @@ function render(time) {
     instanceData.set([
       b.x, b.y, b.r, b.seed,
       b.squash, b.wobAxis, Math.min(b.pop, 1), b.popAngle,
-      fadeIn * (b.pop > 0 ? 1 - b.pop * 0.5 : 1), b.shimmer, 0, 0,
+      fadeIn * (b.pop > 0 ? 1 - b.pop * 0.5 : 1), b.shimmer, layerFor(time, b.delay), 0,
     ], k * FLOATS);
     k++;
   }
@@ -532,11 +589,9 @@ function render(time) {
     gl.useProgram(bubbleProgram.program);
     gl.uniform2f(bubbleProgram.u.uStage, W, H);
     gl.uniform1f(bubbleProgram.u.uTime, time);
-    const s = camScale();
-    gl.uniform2f(bubbleProgram.u.uCamScale, s[0], s[1]);
-    gl.uniform1f(bubbleProgram.u.uMirror, facing === 'user' ? 1 : 0);
+    gl.uniform1f(bubbleProgram.u.uMirror, facing === 'user' && source?.element === video ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, camTexture);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, history);
     gl.uniform1i(bubbleProgram.u.uCam, 0);
     gl.bindVertexArray(quadVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
@@ -583,7 +638,7 @@ canvas.addEventListener('pointerdown', e => {
     startPop(hit, e.clientX, e.clientY);
   } else {
     const a = rand(0, Math.PI * 2);
-    const s = unit() * 0.12;
+    const s = unit() * 0.25;
     blow(e.clientX, e.clientY, Math.cos(a) * s, Math.sin(a) * s - s * 0.5, unit() * 0.02);
   }
   hint.style.opacity = '0';
@@ -615,7 +670,7 @@ function begin() {
 
 if (gl) {
   setupGL();
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 10; i++) {
     spawnFromCorner();
     const b = bubbles[bubbles.length - 1];
     b.x = rand(0.2, 0.8) * W;
