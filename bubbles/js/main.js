@@ -3,7 +3,7 @@
 // little at the end of their life and pop into droplets. Every bubble is a thin soap film: rainbow
 // interference colours that swirl and drain, a window highlight, and the live camera reflected
 // across its surface, see-through in the middle and stronger towards the rim like real glass. Each
-// bubble shows the camera a fraction of a second late, every one from a slightly different moment.
+// bubble shows the camera a fraction of a second late, every one from its own moment up to 2.5 s back.
 
 import { openCamera, cameraProblem, PROBLEMS } from './camera.js';
 import { createDemoFeed } from './demo-feed.js';
@@ -16,6 +16,8 @@ const SWELL_TIME = 0.7;                // the last breath before it pops
 const SWELL = 1.16;                    // how much bigger it gets before popping
 const POP_TIME = 0.14;                 // film tearing open
 const DROPLET_LIFE = 0.55;
+const SPEED = 15;                      // drift speed multiplier (the founder asked for 15x)
+const SUBSTEPS = 10;                   // physics steps per frame, so fast bubbles never pass through each other
 
 const canvas = document.getElementById('view');
 const video = document.getElementById('cam');
@@ -224,9 +226,9 @@ let bg, bubbleProgram, dropProgram, captureProgram, quadVao, dropVao, instanceBu
 
 // Video history: a ring of square frames covering about the last second. Each bubble reads the frame
 // from its own moment in the past, so every bubble shows you a fraction of a second late.
-const HISTORY = 36;
-const HISTORY_SIZE = 320;
-const DELAY = [0.08, 0.9];            // seconds
+const HISTORY = 80;
+const HISTORY_SIZE = 256;
+const DELAY = [0.2, 2.5];             // seconds
 let history, historyFbo;
 const historyTimes = new Float64Array(HISTORY).fill(-1);
 let historyHead = -1;
@@ -389,7 +391,7 @@ function blow(x, y, vx, vy, startR) {
 function spawnFromCorner() {
   const u = unit();
   const a = rand(-1.25, -0.3);               // up and to the right
-  const speed = u * rand(0.22, 0.42);
+  const speed = u * rand(0.22, 0.42) * SPEED;
   blow(u * 0.03 + rand(0, 10), H - u * 0.03 - rand(0, 10), Math.cos(a) * speed, Math.sin(a) * speed, u * rand(0.010, 0.02));
 }
 
@@ -412,8 +414,8 @@ function startPop(b, fromX, fromY) {
     drops.push({
       x: b.x + Math.cos(a) * b.r * rand(0.6, 1),
       y: b.y + Math.sin(a) * b.r * rand(0.6, 1),
-      vx: Math.cos(a) * s + b.vx,
-      vy: Math.sin(a) * s + b.vy,
+      vx: Math.cos(a) * s + b.vx * 0.05,
+      vy: Math.sin(a) * s + b.vy * 0.05,
       size: rand(1.5, 4.5) * (0.6 + b.r / unit() * 5),
       age: 0,
     });
@@ -448,14 +450,14 @@ function step(dt) {
     b.y += b.vy * dt;
     // Keep drifting at a lazy screensaver pace: never stall, never race.
     const sp = Math.hypot(b.vx, b.vy);
-    const want = Math.min(Math.max(sp, u * 0.16), u * 0.5);
+    const want = Math.min(Math.max(sp, u * 0.16 * SPEED), u * 0.5 * SPEED);
     if (sp > 0) { b.vx *= want / sp; b.vy *= want / sp; }
 
     // Edges.
-    if (b.x - b.r < 0 && b.vx < 0) { b.x = b.r; b.vx = -b.vx; wobble(b, Math.abs(b.vx) / u * 0.5, 0); }
-    if (b.x + b.r > W && b.vx > 0) { b.x = W - b.r; b.vx = -b.vx; wobble(b, Math.abs(b.vx) / u * 0.5, 0); }
-    if (b.y - b.r < 0 && b.vy < 0) { b.y = b.r; b.vy = -b.vy; wobble(b, Math.abs(b.vy) / u * 0.5, Math.PI / 2); }
-    if (b.y + b.r > H && b.vy > 0 && b.age > 1.5) { b.y = H - b.r; b.vy = -b.vy; wobble(b, Math.abs(b.vy) / u * 0.5, Math.PI / 2); }
+    if (b.x - b.r < 0 && b.vx < 0) { b.x = b.r; b.vx = -b.vx; wobble(b, Math.abs(b.vx) / (u * SPEED) * 0.5, 0); }
+    if (b.x + b.r > W && b.vx > 0) { b.x = W - b.r; b.vx = -b.vx; wobble(b, Math.abs(b.vx) / (u * SPEED) * 0.5, 0); }
+    if (b.y - b.r < 0 && b.vy < 0) { b.y = b.r; b.vy = -b.vy; wobble(b, Math.abs(b.vy) / (u * SPEED) * 0.5, Math.PI / 2); }
+    if (b.y + b.r > H && b.vy > 0 && b.age > 1.5) { b.y = H - b.r; b.vy = -b.vy; wobble(b, Math.abs(b.vy) / (u * SPEED) * 0.5, Math.PI / 2); }
 
     // Wobble: a damped squash-and-stretch after every bump.
     b.wobT += dt;
@@ -487,8 +489,8 @@ function step(dt) {
         a.vx += k * mb * nx; a.vy += k * mb * ny;
         b.vx -= k * ma * nx; b.vy -= k * ma * ny;
         const angle = Math.atan2(ny, nx);
-        wobble(a, Math.abs(rel) / u * 0.6, angle);
-        wobble(b, Math.abs(rel) / u * 0.6, angle);
+        wobble(a, Math.abs(rel) / (u * SPEED) * 0.6, angle);
+        wobble(b, Math.abs(rel) / (u * SPEED) * 0.6, angle);
       }
     }
   }
@@ -622,7 +624,7 @@ function frame(now) {
   const t = now / 1000;
   const dt = Math.min(0.05, last ? t - last : 0.016);
   last = t;
-  step(dt);
+  for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS);
   render(t);
   requestAnimationFrame(frame);
 }
@@ -638,7 +640,7 @@ canvas.addEventListener('pointerdown', e => {
     startPop(hit, e.clientX, e.clientY);
   } else {
     const a = rand(0, Math.PI * 2);
-    const s = unit() * 0.25;
+    const s = unit() * 0.25 * SPEED;
     blow(e.clientX, e.clientY, Math.cos(a) * s, Math.sin(a) * s - s * 0.5, unit() * 0.02);
   }
   hint.style.opacity = '0';
