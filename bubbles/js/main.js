@@ -11,8 +11,8 @@ import { createProgram } from './gl-utils.js';
 
 const MAX_BUBBLES = 34;
 const SPAWN_EVERY = [0.22, 0.5];       // seconds between new bubbles from the corner
-const LIFE = [5, 11];                  // seconds before a bubble starts to swell
-const SWELL_TIME = 0.7;                // the last breath before it pops
+const LIFE = [16, 30];                  // seconds before a bubble starts to swell
+const SWELL_TIME = 1.4;                // the last breath before it pops
 const SWELL = 1.16;                    // how much bigger it gets before popping
 const POP_TIME = 0.14;                 // film tearing open
 const DROPLET_LIFE = 0.55;
@@ -389,6 +389,7 @@ function blow(x, y, vx, vy, startR) {
 }
 
 function spawnFromCorner() {
+  if (bubbles.length >= MAX_BUBBLES) return;   // full screen: wait for a natural pop instead of forcing one
   const u = unit();
   const a = rand(-1.25, -0.3);               // up and to the right
   const speed = u * rand(0.22, 0.42) * SPEED;
@@ -439,7 +440,7 @@ function step(dt) {
     // Grow towards full size; at the end of life swell a little, shimmer faster, then pop.
     const swelling = b.age > b.life;
     const goal = swelling ? b.target * SWELL : b.target;
-    b.r += (goal - b.r) * (1 - Math.exp(-dt / (swelling ? 0.25 : 1.4)));
+    b.r += (goal - b.r) * (1 - Math.exp(-dt / (swelling ? 0.5 : 1.4)));
     if (swelling) {
       b.shimmer = Math.min(1, b.shimmer + dt * 1.5);
       if (b.wobAmp < 0.03) wobble(b, 0.04, rand(0, Math.PI));
