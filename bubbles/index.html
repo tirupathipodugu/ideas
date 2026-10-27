@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- Bubbles: the old Windows bubble screensaver, but every bubble reflects your live camera. -->
+<!-- Bubbles: the old Windows bubble screensaver with real bubble physics; you stand in a garden and play with them. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
 <title>Bubbles</title>
-<meta name="description" content="Soap bubbles drift up from the corner, swell and pop, and every one reflects your live camera.">
+<meta name="description" content="Blow real-looking soap bubbles out of your mouth, push them with your hands, freeze them, and float away inside one.">
 <meta name="theme-color" content="#0d2410">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2305070c%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22none%22 stroke=%22%23bfe9ff%22 stroke-width=%221.6%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%222.4%22 fill=%22%23fff%22/%3E%3C/svg%3E">
@@ -17,20 +17,28 @@
 <canvas id="view" aria-label="Soap bubbles reflecting your camera"></canvas>
 <video id="cam" playsinline muted autoplay hidden></video>
 
-<p class="hint" id="hint">Tap a bubble to pop it. Tap empty space to blow one.</p>
+<p class="badge" id="badge" role="status" hidden></p>
+<p class="hint" id="hint" aria-live="polite">Tap a bubble to pop it. Tap empty space to blow one.</p>
 
 <nav class="controls" aria-label="Controls">
   <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
-  <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip camera</button>
-  <button type="button" id="full" class="pill"><span aria-hidden="true">⛶</span> Full screen</button>
+  <button type="button" id="me" class="pill accent"><span aria-hidden="true">🫧</span> Bubble me</button>
+  <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip</button>
+  <button type="button" id="full" class="pill"><span aria-hidden="true">⛶</span> Full</button>
 </nav>
 
 <div class="start" id="start">
   <div class="startcard">
     <p class="kicker">Bubbles</p>
-    <h2>Remember the bubble screensaver? Now you're in every bubble.</h2>
-    <p>Your camera stays on your device. Nothing is uploaded or saved.</p>
-    <button type="button" id="go" class="primary">Turn on camera</button>
+    <h2>Remember the bubble screensaver? Now you can play with it.</h2>
+    <ul class="tries">
+      <li>Blow at your screen, bubbles come out of your mouth</li>
+      <li>Wave to push them, they land on your shoulders</li>
+      <li>Hold one to freeze it, drag for a giant one</li>
+      <li>Tap “Bubble me” and float away</li>
+    </ul>
+    <p>Uses your camera and microphone. Everything stays on your device; nothing is uploaded or saved.</p>
+    <button type="button" id="go" class="primary">Start</button>
     <button type="button" id="nocam" class="link">Continue without camera</button>
     <p class="status" id="status" role="status"></p>
   </div>
