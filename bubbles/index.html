@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Bubbles: the old Windows bubble screensaver, but every bubble reflects your live camera. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:">
+<title>Bubbles</title>
+<meta name="description" content="Soap bubbles drift up from the corner, swell and pop, and every one reflects your live camera.">
+<meta name="theme-color" content="#05070c">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2305070c%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22none%22 stroke=%22%23bfe9ff%22 stroke-width=%221.6%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%222.4%22 fill=%22%23fff%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<canvas id="view" aria-label="Soap bubbles reflecting your camera"></canvas>
+<video id="cam" playsinline muted autoplay hidden></video>
+
+<p class="hint" id="hint">Tap a bubble to pop it. Tap empty space to blow one.</p>
+
+<nav class="controls" aria-label="Controls">
+  <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
+  <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip camera</button>
+  <button type="button" id="full" class="pill"><span aria-hidden="true">⛶</span> Full screen</button>
+</nav>
+
+<div class="start" id="start">
+  <div class="startcard">
+    <p class="kicker">Bubbles</p>
+    <h2>Remember the bubble screensaver? Now you're in every bubble.</h2>
+    <p>Your camera stays on your device. Nothing is uploaded or saved.</p>
+    <button type="button" id="go" class="primary">Turn on camera</button>
+    <button type="button" id="nocam" class="link">Continue without camera</button>
+    <p class="status" id="status" role="status"></p>
+  </div>
+</div>
+</body>
+</html>
