@@ -16,8 +16,8 @@ const SWELL_TIME = 1.4;                // the last breath before it pops
 const SWELL = 1.16;                    // how much bigger it gets before popping
 const POP_TIME = 0.14;                 // film tearing open
 const DROPLET_LIFE = 0.55;
-const SPEED = 15;                      // drift speed multiplier (the founder asked for 15x)
-const SUBSTEPS = 10;                   // physics steps per frame, so fast bubbles never pass through each other
+const SPEED = 1.25;                    // drift speed multiplier (15x felt far too fast; cut by 12x)
+const SUBSTEPS = 3;                    // physics steps per frame, so fast bubbles never pass through each other
 
 const canvas = document.getElementById('view');
 const video = document.getElementById('cam');
