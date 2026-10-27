@@ -41,17 +41,81 @@ void main() {
   gl_Position = vec4(corner, 0.0, 1.0);
 }`;
 
-// A deep night "desktop": blue-black with a soft glow low on the left where the bubbles come from.
+// A soft-focus garden, like a photo shot through a wide-open lens: sunlit leaves up top, a warm sun
+// glow top-right, deep foliage in the middle, blurred grass along the bottom and drifting light bokeh.
 const BACKGROUND_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 vUv;
 uniform vec2 uAspect;
+uniform float uTime;
 out vec4 outColor;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 4; i++) { s += a * noise(p); p = p * 2.07 + 3.1; a *= 0.5; }
+  return s;
+}
+
+// One layer of out-of-focus light discs.
+vec3 bokeh(vec2 p, float cell, float t, vec3 tint, float amount) {
+  vec2 g = p / cell;
+  vec2 id = floor(g);
+  vec3 sum = vec3(0.0);
+  for (int y = -1; y <= 1; y++)
+  for (int x = -1; x <= 1; x++) {
+    vec2 c = id + vec2(x, y);
+    float h = hash(c);
+    if (h > amount) continue;
+    vec2 centre = c + 0.5 + 0.35 * vec2(sin(t * 0.3 + h * 40.0), cos(t * 0.25 + h * 23.0));
+    float r = 0.18 + 0.22 * hash(c + 7.0);
+    float d = length(g - centre);
+    float disc = smoothstep(r, r * 0.86, d) * (0.55 + 0.45 * smoothstep(r * 0.5, r, d));   // brighter rim, like a lens
+    sum += tint * disc * (0.35 + 0.65 * hash(c + 3.0));
+  }
+  return sum;
+}
+
 void main() {
-  vec2 p = (vUv - 0.5) * uAspect;
-  vec3 col = mix(vec3(0.010, 0.016, 0.034), vec3(0.028, 0.050, 0.090), vUv.y);
-  col += vec3(0.05, 0.09, 0.14) * exp(-3.0 * length(vUv - vec2(0.0, 0.0)));
-  col *= 1.0 - 0.35 * dot(p, p);
+  vec2 p = vUv * uAspect;
+  float t = uTime;
+  float y = vUv.y;
+
+  // Light falling from the top right through the canopy.
+  vec2 sun = vec2(0.82, 1.08) * uAspect;
+  float glow = exp(-2.2 * length(p - sun));
+
+  // Foliage: big blurred masses of leaves swaying very slowly, lighter where the sun gets through.
+  vec2 sway = vec2(sin(t * 0.21) * 0.03, cos(t * 0.17) * 0.02);
+  float leaves = fbm(p * 2.6 + sway + vec2(0.0, t * 0.01));
+  float fine = fbm(p * 7.0 - sway * 2.0 + 11.0);
+  vec3 deep = vec3(0.035, 0.11, 0.045);
+  vec3 mid = vec3(0.13, 0.33, 0.10);
+  vec3 lit = vec3(0.56, 0.78, 0.30);
+  vec3 col = mix(deep, mid, smoothstep(0.30, 0.70, leaves));
+  col = mix(col, lit, smoothstep(0.55, 0.85, leaves * 0.75 + fine * 0.35) * (0.35 + 1.2 * glow) * smoothstep(0.2, 0.75, y));
+  col += vec3(1.0, 0.92, 0.65) * glow * 0.55;
+
+  // Blurred grass along the bottom: brighter blade tips catching the light.
+  float ground = smoothstep(0.30, 0.0, y);
+  float blades = noise(vec2(p.x * 60.0 + sin(t * 0.6 + p.x * 3.0) * 0.6, y * 3.0));
+  vec3 grass = mix(vec3(0.05, 0.16, 0.04), vec3(0.30, 0.52, 0.12), blades * smoothstep(0.0, 0.25, y) + 0.2 * fine);
+  col = mix(col, grass, ground * 0.85);
+
+  // Bokeh: a big soft layer and a smaller sharper one, thickest where the sun is.
+  float near = smoothstep(0.1, 0.9, y) * (0.4 + 1.6 * glow);
+  col += bokeh(p + vec2(t * 0.004, 0.0), 0.22, t, vec3(0.85, 0.95, 0.55), 0.35) * 0.30 * near;
+  col += bokeh(p * 1.0 + 5.0, 0.09, t * 1.3, vec3(1.0, 0.97, 0.75), 0.25) * 0.22 * near;
+
+  // A gentle vignette and a touch of warmth, so the bubbles stand out in the middle.
+  vec2 c = vUv - 0.5;
+  col *= 1.0 - 0.55 * dot(c, c);
+  col = pow(col, vec3(0.95));
   outColor = vec4(col, 1.0);
 }`;
 
@@ -571,6 +635,7 @@ function render(time) {
   gl.disable(gl.BLEND);
   gl.useProgram(bg.program);
   gl.uniform2f(bg.u.uAspect, W / unit(), H / unit());
+  gl.uniform1f(bg.u.uTime, time);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   // Pack the bubbles, smallest first so big ones sit on top.
