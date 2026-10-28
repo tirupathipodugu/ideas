@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- Doodle Alive: hold a drawing up to the camera and it peels off the paper and starts living in your room. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
+<title>Doodle Alive</title>
+<meta name="description" content="Draw anything on paper, hold it up, and watch it peel off the page and walk around your room.">
+<meta name="theme-color" content="#0b0a10">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230b0a10%22/%3E%3Ccircle cx=%2216%22 cy=%2218%22 r=%229%22 fill=%22%23fff8e6%22 stroke=%22%23111%22 stroke-width=%222%22/%3E%3Ccircle cx=%2212.5%22 cy=%2216%22 r=%222.6%22 fill=%22%23111%22/%3E%3Ccircle cx=%2219.5%22 cy=%2216%22 r=%222.6%22 fill=%22%23111%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<canvas id="view" aria-label="Your camera, with your drawings walking around in it"></canvas>
+<video id="cam" playsinline muted autoplay hidden></video>
+<div class="flash" id="flash" aria-hidden="true"></div>
+<p class="count" id="count" hidden aria-live="assertive"></p>
+
+<header class="top">
+  <p class="title">Doodle Alive</p>
+</header>
+<p class="hint" id="hint" aria-live="polite"></p>
+
+<nav class="controls" id="controls" aria-label="Controls">
+  <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
+  <button type="button" id="capture" class="pill accent"><span aria-hidden="true">✨</span> Bring to life</button>
+  <button type="button" id="eyes" class="pill" aria-pressed="true"><span aria-hidden="true">👀</span> Eyes on</button>
+  <button type="button" id="clear" class="pill" disabled><span aria-hidden="true">🧹</span> Clear</button>
+  <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip</button>
+</nav>
+
+<div class="overlay start" id="start">
+  <div class="card">
+    <p class="kicker">Doodle Alive</p>
+    <h2>Draw anything. Hold it up. Watch it walk off the page.</h2>
+    <ul class="tries">
+      <li>✏️ Draw with a dark pen or marker on plain paper</li>
+      <li>📄 Hold it inside the box and tap <b>Bring to life</b></li>
+      <li>🧗 It climbs onto your head and shoulders, and hides behind you</li>
+      <li>👆 Grab it and throw it, poke it, or swat it with your hand</li>
+    </ul>
+    <p>Uses your camera. Everything stays on your device; nothing is uploaded.</p>
+    <button type="button" id="go" class="primary">Start the camera</button>
+    <button type="button" id="nocam" class="link">Try a sample drawing instead</button>
+    <p class="status" id="status" role="status"></p>
+  </div>
+</div>
+</body>
+</html>
