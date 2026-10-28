@@ -1,10 +1,12 @@
 // Live Puzzle: the classic sliding-tile puzzle, cut from your live camera. Every tile keeps playing,
-// so you are putting yourself back together while you move.
+// so you are putting yourself back together while you move. Grids go from 2×2 up to 20×20, and
+// Auto solve plays a solution out one move at a time.
 // - The start shows the whole picture, then cuts it into tiles, drops the last one out and scrambles.
 // - Tap a tile in the gap's row or column to slide it (a whole line moves at once), swipe, or use arrows.
 // - Solving closes the seams back into one live picture, with confetti and a photo to save.
 
 import { Sound } from './sound.js';
+import { solve } from './solver.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
@@ -19,8 +21,11 @@ glow.width = glow.height = 24;
 const gctx = glow.getContext('2d');
 
 const sound = new Sound();
-const SIZES = [3, 4, 5];
-let N = 4;
+const MIN = 2, MAX = 20;
+let N = MIN;
+let auto = null;         // { plan, at, carry, rate } while the computer is solving
+let autoMoves = 0;
+let lastTick = 0;
 let cells = [];          // cells[cell] = tile id; the last id is the gap
 let pos = [];            // pos[tile] = shown position in cells, eased towards its target
 let phase = 'idle';      // idle | intro | split | scramble | play | won
@@ -125,10 +130,13 @@ function newGame(introTime = 1.8) {
   started = false;
   confetti = [];
   glints = [];
+  stopAuto();
   phase = 'intro';
   phaseT = introTime;
   $('win').hidden = true;
   $('sizeLabel').textContent = `${N}×${N}`;
+  $('smaller').disabled = N <= MIN;
+  $('bigger').disabled = N >= MAX;
   setHint(camOn ? 'This is you. Remember the picture.' : 'Remember the picture.');
   stats();
 }
@@ -151,7 +159,8 @@ function scramble() {
     b = o;
   }
   const order = cells.map((_, i) => i).sort(() => Math.random() - 0.5);
-  order.forEach((tile, i) => { pos[tile].delay = i * 0.035; pos[tile].k = 7; });
+  const stagger = Math.min(0.035, 1.4 / (N * N));
+  order.forEach((tile, i) => { pos[tile].delay = i * stagger; pos[tile].k = 7; });
   target();
   sound.shuffle();
 }
@@ -161,8 +170,8 @@ function target() {
 }
 
 /** Slide the tile at cell i (and everything between it and the gap) into the gap. */
-function slide(i) {
-  if (phase !== 'play') return;
+function slide(i, byComputer = false) {
+  if (phase !== 'play' || (auto && !byComputer)) return;
   const b = cells.indexOf(gapId());
   const r = (i / N) | 0, c = i % N, br = (b / N) | 0, bc = b % N;
   let step;
@@ -175,35 +184,79 @@ function slide(i) {
     moved.push(cells[j]);
   }
   cells[i] = gapId();
-  for (const t of moved) pos[t].k = 22;
+  const k = auto ? Math.min(400, 30 + auto.rate * 0.6) : 22;
+  for (const t of moved) pos[t].k = k;
   target();
   moves += moved.length;
   if (!started) started = true;
-  sound.slide(moved.length);
-  if (navigator.vibrate) navigator.vibrate(8);
+  const now = performance.now();
+  if (!auto || now - lastTick > 70) { sound.slide(moved.length); lastTick = now; }
+  if (!auto && navigator.vibrate) navigator.vibrate(8);
   const home = moved.filter(t => cells[t] === t);
   if (home.length) {
-    sound.place();
-    for (const t of home) glints.push({ t, life: 0.6 });
+    if (!auto || N <= 6) sound.place();
+    if (!auto || N <= 8) for (const t of home) glints.push({ t, life: 0.6 });
   }
   if (solved()) win();
   stats();
 }
 
 function win() {
+  const byComputer = !!auto;
+  stopAuto();
   phase = 'won';
   phaseT = 0;
   setHint('');
   const key = `live-puzzle:best:${N}`;
   let best = null;
   try { best = JSON.parse(localStorage.getItem(key)); } catch {}
-  const record = !best || elapsed < best.time;
+  const record = !byComputer && (!best || elapsed < best.time);
   if (record) {
     best = { time: elapsed, moves };
     try { localStorage.setItem(key, JSON.stringify(best)); } catch {}
   }
-  $('result').textContent = `${clock(elapsed)} · ${moves} ${moves === 1 ? 'move' : 'moves'}`;
-  $('best').textContent = record ? `New best for ${N}×${N}!` : `Best ${N}×${N}: ${clock(best.time)} · ${best.moves} moves`;
+  $('win').querySelector('.kicker').textContent = byComputer ? 'Auto solved' : 'Solved';
+  $('win').querySelector('h2').textContent = byComputer ? 'Put back together for you.' : "You're back together.";
+  $('result').textContent = byComputer ? `${N}×${N} · ${autoMoves} computer ${autoMoves === 1 ? 'move' : 'moves'}` : `${clock(elapsed)} · ${moves} ${moves === 1 ? 'move' : 'moves'}`;
+  $('best').textContent = record ? `New best for ${N}×${N}!`
+    : best ? `Your best ${N}×${N}: ${clock(best.time)} · ${best.moves} moves` : `Now try ${N}×${N} yourself.`;
+  $('next').hidden = N >= MAX;
+  $('next').textContent = `Next: ${N + 1}×${N + 1}`;
+}
+
+// ---------- auto solve ----------
+
+function startAuto() {
+  if (phase !== 'play' || auto) return;
+  const plan = solve(cells, N);
+  if (!plan.length) return;
+  // Small grids go one visible move at a time; big ones speed up so any grid takes under ~20 s.
+  auto = { plan, at: 0, carry: 0, rate: Math.max(9, plan.length / 18) };
+  autoMoves = 0;
+  const b = $('auto');
+  b.classList.add('running');
+  b.innerHTML = '<span aria-hidden="true">⏹</span> Stop';
+}
+
+function stopAuto() {
+  if (!auto) return;
+  auto = null;
+  const b = $('auto');
+  b.classList.remove('running');
+  b.innerHTML = '<span aria-hidden="true">🤖</span> Auto solve';
+  if (phase === 'play') setHint('');
+  for (const p of pos) p.k = 22;
+}
+
+function runAuto(dt) {
+  if (!auto || phase !== 'play') return;
+  auto.carry += dt * auto.rate;
+  while (auto && auto.carry >= 1 && auto.at < auto.plan.length) {
+    auto.carry -= 1;
+    autoMoves++;
+    slide(auto.plan[auto.at++], true);
+  }
+  if (auto) setHint(`Solving… ${auto.at} / ${auto.plan.length} moves`);
 }
 
 function burst() {
@@ -247,7 +300,8 @@ function update(dt) {
     phase = 'play';
     setHint('Tap a tile next to the gap to slide it.');
   }
-  if (phase === 'play' && started) {
+  runAuto(dt);
+  if (phase === 'play' && started && !auto) {
     elapsed += dt;
     if (moves > 0) setHint('');
   }
@@ -298,8 +352,9 @@ function draw(t) {
   if (phase === 'idle') return;
   const { x: bx, y: by, s } = board;
   const cell = s / N;
-  const gap = split * Math.max(3, cell * 0.045);
+  const gap = split * Math.max(N > 8 ? 1 : 3, cell * 0.045);
   const rad = split * cell * 0.09;
+  const fancy = N <= 8;     // big grids skip per-tile rounding, gloss and outlines to stay smooth
   const part = SRC / N;
 
   // The tray the tiles sit in.
@@ -323,6 +378,11 @@ function draw(t) {
       const p = pos[id];
       const dx = bx + p.x * cell + gap / 2, dy = by + p.y * cell + gap / 2, w = cell - gap;
       ctx.globalAlpha = a;
+      if (!fancy) {
+        ctx.drawImage(src, (id % N) * part, ((id / N) | 0) * part, part, part, dx, dy, w, w);
+        ctx.globalAlpha = 1;
+        continue;
+      }
       ctx.save();
       roundRect(ctx, dx, dy, w, w, rad);
       ctx.clip();
@@ -440,10 +500,10 @@ $('nocam').addEventListener('click', () => {
 
 $('again').addEventListener('click', () => newGame(1.2));
 $('shuffle').addEventListener('click', () => { if (phase === 'play' || phase === 'won') newGame(0.6); });
-$('size').addEventListener('click', () => {
-  N = SIZES[(SIZES.indexOf(N) + 1) % SIZES.length];
-  newGame(0.8);
-});
+$('next').addEventListener('click', () => { N = Math.min(MAX, N + 1); newGame(1.2); });
+$('smaller').addEventListener('click', () => { if (N > MIN) { N--; newGame(0.8); } });
+$('bigger').addEventListener('click', () => { if (N < MAX) { N++; newGame(0.8); } });
+$('auto').addEventListener('click', () => { if (auto) stopAuto(); else startAuto(); });
 $('sound').addEventListener('click', e => {
   sound.on = !sound.on;
   const b = e.currentTarget;
@@ -526,4 +586,4 @@ addEventListener('keyup', e => { if (e.key === ' ') peeking = false; });
 addEventListener('resize', resize);
 resize();
 requestAnimationFrame(frame);
-window.puzzle = { get cells() { return cells; }, get phase() { return phase; }, slide, solve: () => { for (let i = 0; i < N * N; i++) cells[i] = i; target(); win(); } };
+window.puzzle = { get cells() { return cells; }, get phase() { return phase; }, get n() { return N; }, slide, startAuto, solve: () => { for (let i = 0; i < N * N; i++) cells[i] = i; target(); win(); } };

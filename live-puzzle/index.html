@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:">
 <title>Live Puzzle</title>
-<meta name="description" content="Your live camera cut into 16 sliding tiles. Put yourself back together while you move.">
+<meta name="description" content="Your live camera cut into sliding tiles, from 2×2 up to 20×20. Put yourself back together while you move.">
 <meta name="theme-color" content="#07090d">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2307090d%22/%3E%3Crect x=%225%22 y=%225%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%237dffc4%22/%3E%3Crect x=%2218%22 y=%225%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23bfe9ff%22/%3E%3Crect x=%225%22 y=%2218%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23ff8fb1%22/%3E%3C/svg%3E">
@@ -28,7 +28,12 @@
   <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
   <button type="button" id="peek" class="pill accent"><span aria-hidden="true">👀</span> Hold to peek</button>
   <button type="button" id="shuffle" class="pill"><span aria-hidden="true">🔀</span> Shuffle</button>
-  <button type="button" id="size" class="pill"><span aria-hidden="true">▦</span> <span id="sizeLabel">4×4</span></button>
+  <span class="sizer" role="group" aria-label="Grid size">
+    <button type="button" id="smaller" class="pill step" aria-label="Smaller grid">−</button>
+    <span class="size" id="sizeLabel" aria-live="polite">2×2</span>
+    <button type="button" id="bigger" class="pill step" aria-label="Bigger grid">+</button>
+  </span>
+  <button type="button" id="auto" class="pill"><span aria-hidden="true">🤖</span> Auto solve</button>
   <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip</button>
 </nav>
 
@@ -38,7 +43,8 @@
     <h2>You're back together.</h2>
     <p class="result" id="result"></p>
     <p class="best" id="best"></p>
-    <button type="button" id="again" class="primary">Play again</button>
+    <button type="button" id="next" class="primary">Next: 3×3</button>
+    <button type="button" id="again" class="secondary">Play again</button>
     <button type="button" id="save" class="secondary"><span aria-hidden="true">📸</span> Save photo</button>
   </div>
 </div>
@@ -46,11 +52,12 @@
 <div class="overlay start" id="start">
   <div class="card">
     <p class="kicker">Live Puzzle</p>
-    <h2>Your live camera, cut into 16 tiles. Put yourself back together.</h2>
+    <h2>Your live camera, cut into tiles. Put yourself back together.</h2>
     <ul class="tries">
       <li>Every tile stays live, so you keep moving while you solve</li>
       <li>Tap a tile next to the gap to slide it, or swipe</li>
-      <li>Hold Peek to see the whole picture</li>
+      <li>Start at 2×2 and work your way up to 20×20</li>
+      <li>Stuck? Tap Auto solve and watch it put you back</li>
     </ul>
     <p>Uses your camera. Everything stays on your device; nothing is uploaded or saved.</p>
     <button type="button" id="go" class="primary">Start</button>
