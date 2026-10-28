@@ -1,12 +1,15 @@
 // Live Puzzle: the classic sliding-tile puzzle, cut from your live camera. Every tile keeps playing,
 // so you are putting yourself back together while you move. Grids go from 2×2 up to 20×20, and
 // Auto solve plays a solution out one move at a time.
+// - With the camera on, the board frames your face so your eyes and mouth land on their own tiles.
+//   Slide an eye tile home and it blinks; slide the mouth tile home and you smile.
 // - The start shows the whole picture, then cuts it into tiles, drops the last one out and scrambles.
 // - Tap a tile in the gap's row or column to slide it (a whole line moves at once), swipe, or use arrows.
 // - Solving closes the seams back into one live picture, with confetti and a photo to save.
 
 import { Sound } from './sound.js';
 import { solve } from './solver.js';
+import { FaceTracker, Reactions, EYES, MOUTH } from './face.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
@@ -26,6 +29,12 @@ let N = MIN;
 let auto = null;         // { plan, at, carry, rate } while the computer is solving
 let autoMoves = 0;
 let lastTick = 0;
+let face = null, faceLoading = false, faceFailed = false;
+let crop = null;         // { cx, cy, size } in camera pixels: the square the board shows
+let facePts = null;      // landmarks in picture pixels, while a face is seen
+let features = null;     // { eyes: [tile, tile], mouth: tile }
+let introWait = 0;
+const reactions = new Reactions();
 let cells = [];          // cells[cell] = tile id; the last id is the gap
 let pos = [];            // pos[tile] = shown position in cells, eased towards its target
 let phase = 'idle';      // idle | intro | split | scramble | play | won
@@ -64,18 +73,81 @@ function resize() {
 
 // ---------- the picture ----------
 
-function updateSource(t) {
+function updateSource(t, dt) {
   if (camOn && video.readyState >= 2 && video.videoWidth) {
     const vw = video.videoWidth, vh = video.videoHeight, m = Math.min(vw, vh);
-    const sy = vh > vw ? (vh - m) * 0.35 : (vh - m) / 2;      // portrait: keep the face, lose the lap
+    if (face) face.detect(video, t * 1000);
+    const pts = face && face.points;
+    // Without a face: the middle (a bit high on a portrait phone, to keep the face and lose the lap).
+    let goal = { cx: vw / 2, cy: vh > vw ? m / 2 + (vh - m) * 0.35 : vh / 2, size: m };
+    if (pts) {
+      let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+      for (const p of pts) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+      const fw = (x1 - x0) * vw, fh = (y1 - y0) * vh;
+      // The whole face fills most of the board, so eyes, nose and mouth fall on different tiles.
+      goal = { cx: (x0 + x1) / 2 * vw, cy: (y0 + y1) / 2 * vh, size: Math.min(m, Math.max(m * 0.3, fw * 1.9, fh * 1.5)) };
+    }
+    if (!crop) crop = goal;
+    const k = 1 - Math.exp(-dt * 2.5);
+    crop.cx += (goal.cx - crop.cx) * k;
+    crop.cy += (goal.cy - crop.cy) * k;
+    crop.size += (goal.size - crop.size) * k;
+    const size = Math.min(m, crop.size);
+    const sx = Math.max(0, Math.min(vw - size, crop.cx - size / 2));
+    const sy = Math.max(0, Math.min(vh - size, crop.cy - size / 2));
+    const mirror = facing === 'user';
     sctx.save();
-    if (facing === 'user') { sctx.translate(SRC, 0); sctx.scale(-1, 1); }
-    sctx.drawImage(video, (vw - m) / 2, sy, m, m, 0, 0, SRC, SRC);
+    if (mirror) { sctx.translate(SRC, 0); sctx.scale(-1, 1); }
+    sctx.drawImage(video, sx, sy, size, size, 0, 0, SRC, SRC);
     sctx.restore();
+    if (pts) {
+      const sc = SRC / size;
+      facePts = pts.map(p => {
+        const x = (p.x * vw - sx) * sc;
+        return { x: mirror ? SRC - x : x, y: (p.y * vh - sy) * sc };
+      });
+      features = featureTiles(facePts);
+    } else {
+      facePts = null;
+    }
+    reactions.apply(sctx, facePts, dt);
   } else {
     drawPicture(t);
   }
   gctx.drawImage(src, 0, 0, 24, 24);
+}
+
+/** Which tile (by home position) each eye and the mouth sit on. */
+function featureTiles(pts) {
+  const tileAt = (x, y) => {
+    const c = Math.floor(x / (SRC / N)), r = Math.floor(y / (SRC / N));
+    return c >= 0 && c < N && r >= 0 && r < N ? r * N + c : -1;
+  };
+  const centre = ids => ids.reduce((a, i) => ({ x: a.x + pts[i].x / ids.length, y: a.y + pts[i].y / ids.length }), { x: 0, y: 0 });
+  const eyes = EYES.map(e => { const p = centre(e.upper.concat(e.lower)); return tileAt(p.x, p.y); });
+  const m = centre([MOUTH.left, MOUTH.right, MOUTH.upper, MOUTH.lower]);
+  return { eyes, mouth: tileAt(m.x, m.y) };
+}
+
+/** Tiles that just landed home: if one carries an eye it blinks, if it carries the mouth you smile. */
+function react(home) {
+  if (!features || !facePts) return;
+  let blinked = false, smiled = false;
+  features.eyes.forEach((tile, e) => { if (home.includes(tile)) { reactions.blink(e); blinked = true; } });
+  if (home.includes(features.mouth)) { reactions.smile(); smiled = true; }
+  if (smiled) sound.smile(); else if (blinked) sound.blink();
+}
+
+async function loadFace() {
+  if (face || faceLoading || faceFailed) return;
+  faceLoading = true;
+  try {
+    face = await FaceTracker.create();
+  } catch (err) {
+    faceFailed = true;
+    console.warn('Face tracking unavailable', err);
+  }
+  faceLoading = false;
 }
 
 /** Without a camera: a moving sunset over the sea, busy enough that every tile is different. */
@@ -131,6 +203,7 @@ function newGame(introTime = 1.8) {
   confetti = [];
   glints = [];
   stopAuto();
+  introWait = 0;
   phase = 'intro';
   phaseT = introTime;
   $('win').hidden = true;
@@ -196,6 +269,7 @@ function slide(i, byComputer = false) {
   if (home.length) {
     if (!auto || N <= 6) sound.place();
     if (!auto || N <= 8) for (const t of home) glints.push({ t, life: 0.6 });
+    react(home);
   }
   if (solved()) win();
   stats();
@@ -281,7 +355,10 @@ const ease = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
 function update(dt) {
   if (phase === 'intro') {
     phaseT -= dt;
-    if (phaseT <= 0) { phase = 'split'; setHint(''); }
+    introWait += dt;
+    const waiting = camOn && !facePts && !faceFailed && introWait < 6;
+    if (phaseT <= 0 && waiting) setHint('Finding your face…');
+    if (phaseT <= 0 && !waiting) { phase = 'split'; setHint(''); }
   }
   if (phase === 'split') {
     split = Math.min(1, split + dt * 2.4);
@@ -298,7 +375,7 @@ function update(dt) {
   }
   if (phase === 'scramble' && settled) {
     phase = 'play';
-    setHint('Tap a tile next to the gap to slide it.');
+    setHint(facePts ? 'Slide your eyes and mouth home. Watch what happens.' : 'Tap a tile next to the gap to slide it.');
   }
   runAuto(dt);
   if (phase === 'play' && started && !auto) {
@@ -310,7 +387,14 @@ function update(dt) {
     const k = ease(phaseT / 0.9);
     split = 1 - k;
     gapAlpha = k;
-    if (phaseT >= 0.9 && phaseT - dt < 0.9) { flash = 1; burst(); sound.win(); if (navigator.vibrate) navigator.vibrate([20, 40, 30]); }
+    if (phaseT >= 0.9 && phaseT - dt < 0.9) {
+      flash = 1;
+      burst();
+      sound.win();
+      if (navigator.vibrate) navigator.vibrate([20, 40, 30]);
+      reactions.smile(true);           // the whole face comes back together: a big smile and a wink
+      reactions.blink(0);
+    }
     if (phaseT >= 1.9 && $('win').hidden) $('win').hidden = false;
   }
   peek += ((peeking && phase === 'play' ? 1 : 0) - peek) * Math.min(1, dt * 12);
@@ -444,7 +528,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const t = now / 1000;
-  updateSource(t);
+  updateSource(t, dt);
   update(dt);
   draw(t);
   requestAnimationFrame(frame);
@@ -476,6 +560,8 @@ async function startCamera() {
   video.srcObject = stream;
   await video.play().catch(() => {});
   camOn = true;
+  crop = null;
+  loadFace();
 }
 
 $('go').addEventListener('click', async () => {
@@ -586,4 +672,4 @@ addEventListener('keyup', e => { if (e.key === ' ') peeking = false; });
 addEventListener('resize', resize);
 resize();
 requestAnimationFrame(frame);
-window.puzzle = { get cells() { return cells; }, get phase() { return phase; }, get n() { return N; }, slide, startAuto, solve: () => { for (let i = 0; i < N * N; i++) cells[i] = i; target(); win(); } };
+window.puzzle = { get cells() { return cells; }, get phase() { return phase; }, get n() { return N; }, get features() { return features; }, get face() { return !!facePts; }, reactions, slide, startAuto, solve: () => { for (let i = 0; i < N * N; i++) cells[i] = i; target(); win(); } };

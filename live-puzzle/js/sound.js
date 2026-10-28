@@ -68,6 +68,25 @@ export class Sound {
     this.tone(1976, t + 0.04, 0.3, 'sine', 0.03);
   }
 
+  /** An eye tile home: two soft pips, one per blink. */
+  blink() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime + 0.04;
+    this.tone(1760, t, 0.12, 'sine', 0.07, 2400);
+    this.tone(1760, t + 0.42, 0.12, 'sine', 0.07, 2400);
+  }
+
+  /** The mouth tile home: a bright rising "ta-da". */
+  smile() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime + 0.04;
+    this.tone(784, t, 0.25, 'triangle', 0.08);
+    this.tone(1175, t + 0.12, 0.5, 'triangle', 0.09);
+    this.tone(1568, t + 0.12, 0.5, 'sine', 0.04);
+  }
+
   shuffle() {
     const ctx = this.ready();
     if (!ctx) return;

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
 <title>Live Puzzle</title>
 <meta name="description" content="Your live camera cut into sliding tiles, from 2×2 up to 20×20. Put yourself back together while you move.">
 <meta name="theme-color" content="#07090d">
@@ -55,6 +55,7 @@
     <h2>Your live camera, cut into tiles. Put yourself back together.</h2>
     <ul class="tries">
       <li>Every tile stays live, so you keep moving while you solve</li>
+      <li>Your face fills the board: get an eye home and it blinks, the mouth and you smile</li>
       <li>Tap a tile next to the gap to slide it, or swipe</li>
       <li>Start at 2×2 and work your way up to 20×20</li>
       <li>Stuck? Tap Auto solve and watch it put you back</li>
