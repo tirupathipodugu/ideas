@@ -84,6 +84,7 @@ export class Face {
     this.ctx = this.canvas.getContext('2d');
     this.lastStamp = 0;
     this.mouth = null;          // camera-normalised centre of the lips
+    this.box = null;            // camera-normalised face bounds { x0, y0, x1, y1 }, for the diver's mask
     this.pursed = 0;            // 0..1, how much the lips are pushed into an O
     this.held = 0;
     this.strength = 0;          // 0..1, smoothed
@@ -103,6 +104,12 @@ export class Face {
     const face = result.faceLandmarks && result.faceLandmarks[0];
     const shapes = result.faceBlendshapes && result.faceBlendshapes[0];
     if (!face || !shapes) { this.mouth = null; this.pursed = 0; this.held = 0; return; }
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const p of face) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+    const k = this.box ? 0.35 : 1;                  // smoothed, so the face sits still in the mask
+    this.box = this.box
+      ? { x0: this.box.x0 + (x0 - this.box.x0) * k, y0: this.box.y0 + (y0 - this.box.y0) * k, x1: this.box.x1 + (x1 - this.box.x1) * k, y1: this.box.y1 + (y1 - this.box.y1) * k }
+      : { x0, y0, x1, y1 };
     const top = face[13], bottom = face[14];   // inner upper and lower lip
     this.mouth = { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 };
     const score = {};

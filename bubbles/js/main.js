@@ -11,6 +11,7 @@ import { openCamera, cameraProblem, PROBLEMS } from './camera.js';
 import { createDemoFeed } from './demo-feed.js';
 import { Renderer } from './render.js';
 import { World } from './world.js';
+import { Sea } from './sea.js';
 import { Sound } from './sound.js';
 import { Body, Face, Tilt } from './senses.js';
 
@@ -49,12 +50,15 @@ const world = new World({
 });
 
 let W = 0, H = 0;
+const sea = new Sea();
+
 function resize() {
   W = window.innerWidth;
   H = window.innerHeight;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (gl) renderer.resize(W, H, dpr);
   world.resize(W, H);
+  sea.resize(W, H);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -133,8 +137,10 @@ canvas.addEventListener('pointerdown', e => {
   sound.unlock();
   try { canvas.setPointerCapture(e.pointerId); } catch { /* not a live pointer */ }
   const b = world.pick(e.clientX, e.clientY);
+  const diver = !b && world.water && sea.hitDiver(e.clientX, e.clientY);
+  if (diver) sea.callDiver(world);
   gestures.set(e.pointerId, {
-    mode: b ? 'bubble' : 'empty', bubble: b, wand: null,
+    mode: b ? 'bubble' : diver ? 'none' : 'empty', bubble: b, wand: null,
     x0: e.clientX, y0: e.clientY, t0: performance.now(),
     x: e.clientX, y: e.clientY, vx: 0, vy: 0, t: performance.now(),
   });
@@ -150,9 +156,13 @@ canvas.addEventListener('pointermove', e => {
   g.x = e.clientX; g.y = e.clientY; g.t = now;
   const far = Math.hypot(g.x - g.x0, g.y - g.y0);
   if (g.mode === 'empty' && far > DRAG_PX) {
-    g.wand = world.wandStart(g.x0, g.y0);
-    g.mode = g.wand ? 'wand' : 'none';
+    if (world.water) g.mode = 'stir';            // under water a swipe stirs the water instead
+    else {
+      g.wand = world.wandStart(g.x0, g.y0);
+      g.mode = g.wand ? 'wand' : 'none';
+    }
   }
+  if (g.mode === 'stir') world.fluid.splat(g.x, g.y, g.vx, g.vy, unit() * 0.09);
   if (g.mode === 'wand') world.wandMove(g.wand, g.x, g.y);
   if (g.mode === 'bubble' && far > 24) g.mode = 'none';
 });
@@ -161,7 +171,7 @@ function endGesture(e, cancelled) {
   const g = gestures.get(e.pointerId);
   if (!g) return;
   gestures.delete(e.pointerId);
-  if (g.mode === 'bubble' && !cancelled && g.bubble.pop === 0) world.pop(g.bubble, g.x, g.y);
+  if (g.mode === 'bubble' && !cancelled && g.bubble.pop === 0) world.poke(g.bubble, g.x, g.y);
   else if (g.mode === 'freeze') world.endFreeze(g.bubble);
   else if (g.mode === 'empty' && !cancelled) world.tapBubble(g.x, g.y);
   else if (g.mode === 'wand') world.wandRelease(g.wand, g.vx, g.vy);
@@ -240,10 +250,12 @@ const TIPS = [
   'Purse your lips and blow: bubbles come out of your mouth',
   'Wave your hand to push them',
   'Hold a bubble to freeze it, let go to shatter it',
-  'Drag across empty space for a giant bubble',
+  () => world.water ? 'Swipe to stir the water into whirlpools' : 'Drag across empty space for a giant bubble',
   'Hold empty space for slow motion',
   'Tap “Bubble me” to float away',
   'Tilt your phone, or shake it',
+  () => world.water ? 'Tap the diver: that’s you in the mask' : 'Tap empty space to blow a bubble',
+  () => world.water ? 'Tap a big bubble to split it' : 'Let bubbles touch to make double bubbles',
 ];
 let tip = 0, tipTimer = 0;
 function rotateTips(dt) {
@@ -252,10 +264,10 @@ function rotateTips(dt) {
   tipTimer = 0;
   do tip = (tip + 1) % TIPS.length;
   while (!usingCamera && (tip === 1 || tip === 5));
-  hint.textContent = TIPS[tip];
+  hint.textContent = typeof TIPS[tip] === 'function' ? TIPS[tip]() : TIPS[tip];
 }
 
-let badgeNote = '';          // a lasting note ("Finding you…"); slow motion shows over it
+let badgeNote = '';          // a lasting note ("Loading body tracking…"); slow motion shows over it
 function showBadge() {
   const text = timeScale < 0.6 ? 'Slow motion' : badgeNote;
   badge.textContent = text;
@@ -277,22 +289,32 @@ async function startCamera() {
   }
 }
 
-async function startFace() {
-  try {
-    face = await Face.create();
-  } catch {
-    face = null;              // no face tracking: tapping still makes bubbles
-  }
+const LOAD_TIMEOUT_MS = 25000;
+
+/** Give up waiting on a model that never finishes loading (it can hang on some phones). */
+function withTimeout(promise) {
+  return Promise.race([promise, new Promise((_, fail) => setTimeout(() => fail(new Error('timeout')), LOAD_TIMEOUT_MS))]);
 }
 
-async function startBody() {
-  badgeNote = 'Finding you…';
+function note(text, ms) {
+  badgeNote = text;
+  if (ms) setTimeout(() => { if (badgeNote === text) badgeNote = ''; }, ms);
+}
+
+// The two models load one after the other: MediaPipe can stall when two tasks start at once.
+async function startTracking() {
+  note('Loading body tracking…');
   try {
-    body = await Body.create();
-    badgeNote = '';
+    body = await withTimeout(Body.create());
+    note('');
   } catch {
-    badgeNote = 'Body tracking unavailable';
-    setTimeout(() => { badgeNote = ''; }, 3000);
+    note('Body tracking unavailable', 3000);
+  }
+  try {
+    face = await withTimeout(Face.create());   // lips, for blowing bubbles
+  } catch {
+    face = null;              // no face tracking: tapping still makes bubbles
+    note('Blowing unavailable, tap to make bubbles', 4000);
   }
 }
 
@@ -339,6 +361,18 @@ function frame(nowMs) {
     breath: blow,
     tilt: Math.abs(tilt.x) + Math.abs(tilt.y) > 0.05 ? tilt : null,
   };
+  if (world.water) {
+    for (const h of env.hands) {
+      if (Math.hypot(h.vx, h.vy) > unit() * 0.3) world.fluid.splat(h.x, h.y, h.vx, h.vy, unit() * 0.12, 0.5);
+    }
+    if (blow > 0 && mouth) world.fluid.splat(mouth.x, mouth.y - unit() * 0.04, 0, -unit() * 0.9 * blow, unit() * 0.05, 0.4);
+    world.fluid.step(dt * timeScale, world.bubbles);
+    renderer.uploadFlow(world.fluid);
+    const touches = [...gestures.values()].filter(g => g.mode !== 'none').map(g => ({ x: g.x, y: g.y }));
+    sea.update(dt * timeScale, { fluid: world.fluid, touches, hands: env.hands, mouth, blowing: blow > 0, world });
+    sea.draw(source && { element: source.element, box: face && usingCamera ? face.box : null, mirrored: mirrored() });
+    renderer.uploadSea(sea.canvas);
+  }
   const sdt = dt * timeScale / SUBSTEPS;
   for (let i = 0; i < SUBSTEPS; i++) world.step(sdt, env);
 
@@ -365,8 +399,7 @@ if (gl) {
     statusLine.textContent = 'Opening camera…';
     if (!(await startCamera())) return;
     begin();
-    startBody();
-    startFace();
+    startTracking();
   });
   $('nocam').addEventListener('click', () => {
     sound.unlock();

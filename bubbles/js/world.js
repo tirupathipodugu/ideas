@@ -14,6 +14,9 @@
 // - Under water (the default) they are air bubbles: buoyancy lifts them, bigger ones faster, they rock
 //   side to side as they rise (real rising bubbles zig-zag) and gather under the surface. A pop breaks
 //   one into a fizz of tiny bubbles, and ice rises too, because ice floats.
+// - The water is a real fluid (fluid.js): bubbles ride its currents, swipes and hands stir it into
+//   whirlpools, and rising bubbles drag it up. Bubbles that touch merge into one (volume adds up);
+//   tapping a big one splits it into smaller ones. Big bubbles wobble like jelly as they rise.
 
 const MAX_BUBBLES = 90;                 // room for the streams you breathe out under water
 const CORNER_MAX = 30;                 // the corner stream leaves room for blown and tapped bubbles
@@ -27,6 +30,11 @@ const ICE_LIFE = 1.8;
 export const SPEED = 1.25;             // drift speed multiplier
 const DELAY = [0.2, 2.5];              // seconds of camera delay per bubble
 const FREEZE_TIME = 1.4;
+
+import { Fluid } from './fluid.js';
+
+const MERGE_MAX = 0.11;                // merged bubbles stop growing past this share of the screen
+const SPLIT_MIN = 0.04;                // a tap splits bubbles bigger than this; smaller ones pop
 
 const rand = (a, b) => a + Math.random() * (b - a);
 let nextId = 1;
@@ -42,11 +50,12 @@ export class World {
     this.nextSpawn = 0;
     this.trap = null;
     this.water = true;
+    this.fluid = new Fluid();
   }
 
   get u() { return Math.min(this.W, this.H); }
 
-  resize(W, H) { this.W = W; this.H = H; }
+  resize(W, H) { this.W = W; this.H = H; this.fluid.resize(W, H); }
 
   // ---------- Making bubbles ----------
 
@@ -73,6 +82,7 @@ export class World {
       pop: 0, popAngle: 0, popAt: 0, retire: 0,
       freeze: 0, freezing: false, frostAngle: 0,
       bonds: [],
+      jelly: 0,
       perched: 0,
       held: false,
       giant: false,
@@ -189,6 +199,44 @@ export class World {
         age: 0, life: this.water ? FIZZ_LIFE * rand(0.6, 1.2) : DROP_LIFE, rot: 0, spin: 0,
       });
     }
+  }
+
+  /** You tapped it. Under water a big bubble splits into a few smaller ones; anything else pops. */
+  poke(b, x, y) {
+    const u = this.u;
+    if (!this.water || b.r < u * SPLIT_MIN || b.trapped || b.pop > 0) { this.pop(b, x, y); return; }
+    this.unbond(b);
+    b.pop = 1;                         // gone at once; its air carries on in the pieces
+    this.events.pop(b, 0.3);
+    const n = 3 + Math.floor(Math.random() * 3);
+    const a0 = rand(0, Math.PI * 2);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i / n * Math.PI * 2 + rand(-0.3, 0.3);
+      const r = b.r * Math.cbrt(1 / n) * rand(0.85, 1.1);
+      const s = u * rand(0.25, 0.5);
+      const c = this.add(b.x + Math.cos(a) * b.r * 0.45, b.y + Math.sin(a) * b.r * 0.45,
+        b.vx + Math.cos(a) * s, b.vy + Math.sin(a) * s, r, r,
+        { age: 1, jelly: 0.22, delay: b.delay, wobAmp: 0.2, wobT: 0, wobAxis: a });
+      if (c) this.events.blub(r / (u * 0.07));
+    }
+    this.fluid.splat(b.x, b.y, 0, -u * 0.4, b.r);
+  }
+
+  /** Two touching air bubbles become one: radii add as volumes, momentum is kept, it wobbles. */
+  merge(a, b) {
+    const big = a.r >= b.r ? a : b, small = big === a ? b : a;
+    const ma = big.r ** 3, mb = small.r ** 3;
+    this.unbond(small);
+    small.pop = 1;
+    big.x = (big.x * ma + small.x * mb) / (ma + mb);
+    big.y = (big.y * ma + small.y * mb) / (ma + mb);
+    big.vx = (big.vx * ma + small.vx * mb) / (ma + mb);
+    big.vy = (big.vy * ma + small.vy * mb) / (ma + mb);
+    big.r = Math.cbrt(ma + mb);
+    big.target = Math.max(big.r, Math.min(this.u * MERGE_MAX, Math.cbrt(big.target ** 3 + small.target ** 3)));
+    big.jelly = Math.max(big.jelly, 0.2);
+    this.wobble(big, 0.18, Math.atan2(small.y - big.y, small.x - big.x));
+    this.events.blub(big.r / (this.u * 0.07));
   }
 
   /** A frozen bubble breaking into falling ice. */
@@ -331,6 +379,7 @@ export class World {
   // ---------- Physics ----------
 
   wobble(b, amount, angle) {
+    if (this.water) b.jelly = Math.max(b.jelly, Math.min(0.2, amount));
     b.wobAmp = Math.min(0.22, Math.max(Math.abs(b.squash), amount));
     b.wobT = 0;
     b.wobAxis = angle;
@@ -382,11 +431,15 @@ export class World {
 
       // Forces: a little gravity (soap bubbles slowly sink) or buoyancy under water, phone tilt, hands, breath.
       if (this.water) {
-        const rise = -u * (0.1 + 2.2 * b.r / u) * SPEED;       // bigger bubbles rise faster
-        b.vy += (rise - b.vy) * Math.min(1, dt * 1.6);
-        b.vx += Math.sin(this.time * (3 + b.seed * 3) + b.seed * 40) * u * 0.25 * dt;
-        b.vx *= Math.exp(-0.8 * dt);
-        if (b.wobAmp < 0.02 && b.r > u * 0.03) this.wobble(b, 0.035, rand(0, Math.PI));
+        // Rise through the water (bigger bubbles faster), zig-zag a little, and ride its currents.
+        const f = this.fluid.sample(b.x, b.y);
+        const rise = -u * (0.1 + 2.2 * b.r / u) * SPEED;
+        const sway = Math.sin(this.time * (4 + b.seed * 3) + b.seed * 40) * u * 0.07 * (1 - Math.min(1, b.r / (u * 0.08)));
+        const k = Math.min(1, dt * (3 - 2 * Math.min(1, b.r / (u * 0.12))));   // big bubbles carry more momentum
+        b.vx += (f.vx + sway - b.vx) * k;
+        b.vy += (f.vy + rise - b.vy) * k;
+        const rest = Math.max(0, Math.min(0.09, (b.r / u - 0.03) * 2.2));       // big ones never sit still
+        b.jelly += (rest - b.jelly) * Math.min(1, dt * 1.2);
       } else {
         b.vy += u * 0.05 * dt;
       }
@@ -555,7 +608,15 @@ export class World {
         const min = a.r + b.r;
         if (dist >= min) continue;
         const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        const canJoin = !a.trapped && !b.trapped && !a.held && !b.held && !a.freezing && !b.freezing &&
+        if (this.water) {
+          const free = x => !x.trapped && !x.held && !x.freezing && x.freeze < 0.1 && x.age > 0.4;
+          if (free(a) && free(b) && dist < min * 0.8 && Math.cbrt(a.r ** 3 + b.r ** 3) < u * MERGE_MAX) {
+            this.merge(a, b);
+            if (a.pop > 0) break;
+            continue;
+          }
+        }
+        const canJoin = !this.water && !a.trapped && !b.trapped && !a.held && !b.held && !a.freezing && !b.freezing &&
           a.freeze < 0.1 && b.freeze < 0.1 && a.bonds.length < 3 && b.bonds.length < 3 && a.age > 0.6 && b.age > 0.6;
         if (canJoin && Math.abs(rel) < u * 0.35 * SPEED && Math.random() < 0.7) {
           a.bonds.push(b);

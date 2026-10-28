@@ -35,6 +35,8 @@ uniform vec2 uPivot;        // px
 uniform vec4 uClip;         // bubble centre x, y, radius (px), on
 uniform float uWater;       // 0 in the air .. 1 under water
 uniform float uTime;
+uniform sampler2D uFlow;    // the water's velocity, px/s (fluid.js)
+uniform sampler2D uSea;     // the sea life layer (sea.js), straight alpha
 out vec4 outColor;
 
 float h21(vec2 p) {
@@ -65,6 +67,8 @@ void main() {
   vec2 wob = vec2(sin(sp.y * 9.0 + t * 1.7) + sin(sp.x * 5.0 - t * 1.3),
                   cos(sp.x * 8.0 + t * 1.5) + sin(sp.y * 6.0 + t * 1.1));
   px += wob * 0.004 * unit * uWater;
+  vec2 flow = texture(uFlow, px / uStage).rg;
+  px -= flow * 0.03 / (1.0 + length(flow) * 0.002) * uWater;    // stirred water bends the view
   vec2 rs = px / uStage;
   if (uMirror > 0.5) rs.x = 1.0 - rs.x;
   vec2 ruv = 0.5 + (rs - 0.5) * uCover;
@@ -84,6 +88,8 @@ void main() {
       col = mix(bg, cam, a);
     }
   }
+  vec4 life = texture(uSea, px / uStage);
+  col = mix(col, life.rgb, life.a * uWater);
   if (uWater > 0.0) {
     float depth = clamp(px.y / uStage.y, 0.0, 1.0);    // 0 at the surface, 1 at the bottom
     vec3 under = col * mix(vec3(0.55, 0.86, 0.95), vec3(0.16, 0.48, 0.68), depth)
@@ -147,7 +153,7 @@ uniform vec2 uStage;
 out vec2 vP;
 out vec4 vBody, vShape, vLook, vFrost, vJoin0, vJoin1, vJoin2;
 void main() {
-  float reach = 1.3 + max(aShape.x, 0.0);   // stretched wand films need a longer quad
+  float reach = 1.3 + max(aShape.x, 0.0) + aFrost.w * 1.5;   // stretched films and jelly need room
   vec2 p = aCorner * reach;
   vec2 px = aBody.xy + p * aBody.z;
   vec2 clip = px / uStage * 2.0 - 1.0;
@@ -166,6 +172,7 @@ uniform sampler2D uScene;
 uniform vec2 uStage;
 uniform float uMirror;
 uniform float uWater;       // under water these are air bubbles: silvery, and they shrink what's behind
+uniform float uTime;        // world time (slows with slow motion)
 out vec4 outColor;
 
 float hash(vec3 p) {
@@ -206,6 +213,23 @@ void main() {
   float along = dot(vP, axis);
   vec2 across = vP - along * axis;
   vec2 p = along / (1.0 + squash) * axis + across * (1.0 + squash * 0.9);
+
+  // Under water: big bubbles are squat with a flatter bottom, and wobble like jelly (shape modes 2
+  // and 3 ringing at their own rates; bigger bubbles ring slower).
+  float seedJ = vBody.w;
+  if (uWater > 0.0) {
+    float unit = min(uStage.x, uStage.y);
+    float squat = uWater * clamp((vBody.z / unit - 0.035) * 2.2, 0.0, 0.14);
+    p.y *= 1.0 + squat * (p.y > 0.0 ? 1.8 : 0.6);
+  }
+  float jel = vFrost.w;
+  if (jel > 0.0) {
+    float th = atan(p.y, p.x);
+    float slow = 1.0 / (1.0 + vBody.z / min(uStage.x, uStage.y) * 12.0);
+    float def = jel * (cos(2.0 * (th - seedJ * 6.0)) * sin(uTime * 11.0 * slow + seedJ * 9.0)
+                     + 0.6 * cos(3.0 * (th + seedJ * 4.0)) * sin(uTime * 17.0 * slow + seedJ * 3.0));
+    p /= 1.0 + def;
+  }
 
   float r = length(p);
   float aa = fwidth(r) * 1.5;
@@ -406,6 +430,11 @@ export class Renderer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
     this.maskSize = [1, 1];
+    this.seaTexture = this.texture2D(1, 1, new Uint8Array([0, 0, 0, 0]));
+    this.flowTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.flowTexture);
+    this.sampling(gl.TEXTURE_2D);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, 1, 1, 0, gl.RG, gl.FLOAT, new Float32Array(2));
 
     this.history = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.history);
@@ -453,6 +482,20 @@ export class Renderer {
     this.canvas.width = Math.round(W * dpr);
     this.canvas.height = Math.round(H * dpr);
     this.scene = this.target(this.scene, this.canvas.width, this.canvas.height);
+  }
+
+  /** The sea life layer (a 2D canvas the size of the screen). */
+  uploadSea(canvas) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.seaTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  }
+
+  /** The water's velocity field, for bending the view where it was stirred. */
+  uploadFlow(fluid) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.flowTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, fluid.w, fluid.h, 0, gl.RG, gl.FLOAT, fluid.pack());
   }
 
   /** A new camera frame: keep it for compositing you, and add it to the delay history. */
@@ -533,6 +576,8 @@ export class Renderer {
     const clipOn = T && T.b.pop === 0;
     gl.uniform4f(c.u.uClip, clipOn ? T.b.x : 0, clipOn ? T.b.y : 0, clipOn ? T.b.r : 0, clipOn ? 1 : 0);
     gl.uniform1f(c.u.uWater, this.waterMix);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.flowTexture); gl.uniform1i(c.u.uFlow, 3);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.seaTexture); gl.uniform1i(c.u.uSea, 4);
     gl.uniform1f(c.u.uTime, time % 1000);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -557,7 +602,7 @@ export class Renderer {
       d[o + 9] = this.layerFor(time, b.delay);
       d[o + 10] = b.filmClock;
       d[o + 11] = b.lens;
-      d[o + 12] = b.freeze; d[o + 13] = b.frostAngle; d[o + 14] = b.droplet ? 1 : 0; d[o + 15] = 0;
+      d[o + 12] = b.freeze; d[o + 13] = b.frostAngle; d[o + 14] = b.droplet ? 1 : 0; d[o + 15] = b.jelly;
       for (let j = 0; j < 3; j++) {
         const n = b.bonds[j];
         const q = o + 16 + j * 4;
@@ -574,6 +619,7 @@ export class Renderer {
       gl.uniform2f(p.u.uStage, W, H);
       gl.uniform1f(p.u.uMirror, mirror ? 1 : 0);
       gl.uniform1f(p.u.uWater, this.waterMix);
+      gl.uniform1f(p.u.uTime, world.time % 1000);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.history); gl.uniform1i(p.u.uHist, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex); gl.uniform1i(p.u.uScene, 1);
       gl.bindVertexArray(this.quadVao);
