@@ -1,6 +1,5 @@
 // Bubbles: the old Windows bubble screensaver, rebuilt with real bubble physics and your camera.
-// You stand in a garden (cut out of the camera); bubbles drift in from the corner and every one
-// reflects you from a moment in the past. Blow at the screen and bubbles come out of your mouth; wave
+// Your camera fills the screen; bubbles drift in from the corner and every one reflects you from a moment in the past. Blow at the screen and bubbles come out of your mouth; wave
 // and they gust away; they land on your head and shoulders; tap to pop, hold to freeze and shatter,
 // drag to stretch a giant one, hold empty space to slow time, tilt or shake the phone, and "Bubble me"
 // floats you off inside one.
@@ -13,7 +12,7 @@ import { createDemoFeed } from './demo-feed.js';
 import { Renderer } from './render.js';
 import { World } from './world.js';
 import { Sound } from './sound.js';
-import { Body, Breath, Tilt } from './senses.js';
+import { Body, Face, Tilt } from './senses.js';
 
 const SUBSTEPS = 3;
 const HOLD_FREEZE_MS = 220;
@@ -32,6 +31,7 @@ const soundButton = $('sound');
 const meButton = $('me');
 const flipButton = $('flip');
 const fullButton = $('full');
+const waterButton = $('water');
 
 const renderer = new Renderer(canvas);
 const gl = renderer.gl;
@@ -40,7 +40,8 @@ if (!gl) statusLine.textContent = PROBLEMS.webgl;
 let timeScale = 1;
 const sound = new Sound();
 const world = new World({
-  pop: (b, big) => sound.pop(big, timeScale),
+  pop: (b, big) => sound.pop(big, timeScale, world.water),
+  blub: size => sound.blub(Math.min(1, size)),
   shatter: (b, big) => sound.shatter(big),
   crackle: () => sound.crackle(),
   whoosh: (len, level) => sound.whoosh(len, level),
@@ -65,7 +66,8 @@ let source = null;          // the camera (or the demo feed)
 let usingCamera = false;
 let facing = 'user';
 let body = null;            // body tracking, once loaded
-let breath = null;          // microphone, if allowed
+let face = null;            // face tracking (lips, blowing), once loaded
+let faceTurn = false;       // body and face take turns on camera frames
 let blowCarry = 0;
 const tilt = new Tilt(() => world.chainPop());
 const hands = [{ seen: false }, { seen: false }];
@@ -119,7 +121,7 @@ function readBody(now) {
     h.seen = true;
   });
   const a = body.point(9), b = body.point(10);
-  mouth = a && b ? camToScreen((a.x + b.x) / 2, (a.y + b.y) / 2) : null;
+  if (!(face && face.mouth)) mouth = a && b ? camToScreen((a.x + b.x) / 2, (a.y + b.y) / 2) : null;
 }
 
 // ---------- Gestures ----------
@@ -161,7 +163,7 @@ function endGesture(e, cancelled) {
   gestures.delete(e.pointerId);
   if (g.mode === 'bubble' && !cancelled && g.bubble.pop === 0) world.pop(g.bubble, g.x, g.y);
   else if (g.mode === 'freeze') world.endFreeze(g.bubble);
-  else if (g.mode === 'empty' && !cancelled) world.blowFrom(g.x, g.y, 0.5);
+  else if (g.mode === 'empty' && !cancelled) world.tapBubble(g.x, g.y);
   else if (g.mode === 'wand') world.wandRelease(g.wand, g.vx, g.vy);
   else if (g.mode === 'slow') slowHolds--;
 }
@@ -211,6 +213,18 @@ flipButton.addEventListener('click', async () => {
   if (!(await startCamera())) facing = facing === 'user' ? 'environment' : 'user';
 });
 
+function setWater(on) {
+  world.water = on;
+  sound.ambience(on);
+  waterButton.setAttribute('aria-pressed', String(on));
+  waterButton.innerHTML = on ? '<span aria-hidden="true">🌊</span> Underwater' : '<span aria-hidden="true">🌤️</span> In the air';
+  try { localStorage.setItem('bubbles:water', on ? 'on' : 'off'); } catch { /* private mode */ }
+}
+let startWater = true;
+try { startWater = localStorage.getItem('bubbles:water') !== 'off'; } catch { /* private mode */ }
+setWater(startWater);
+waterButton.addEventListener('click', () => { sound.unlock(); setWater(!world.water); });
+
 fullButton.addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen?.();
   else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -223,7 +237,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 const TIPS = [
-  'Blow at your screen to blow bubbles',
+  'Purse your lips and blow: bubbles come out of your mouth',
   'Wave your hand to push them',
   'Hold a bubble to freeze it, let go to shatter it',
   'Drag across empty space for a giant bubble',
@@ -248,7 +262,7 @@ function showBadge() {
   badge.hidden = !text;
 }
 
-// ---------- Camera, microphone, body ----------
+// ---------- Camera, body, face ----------
 
 async function startCamera() {
   try {
@@ -263,14 +277,11 @@ async function startCamera() {
   }
 }
 
-async function startMic() {
+async function startFace() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
-    breath = new Breath(sound.unlock(), stream);
+    face = await Face.create();
   } catch {
-    breath = null;            // no mic: tapping still blows bubbles
+    face = null;              // no face tracking: tapping still makes bubbles
   }
 }
 
@@ -295,7 +306,11 @@ function frame(nowMs) {
 
   if (source && source.takeFrame()) {
     renderer.uploadFrame(source, t);
-    if (body && usingCamera) {
+    faceTurn = !faceTurn;
+    if (face && usingCamera && (faceTurn || !body)) {
+      face.detect(source, nowMs);
+      if (face.mouth) mouth = camToScreen(face.mouth.x, face.mouth.y);
+    } else if (body && usingCamera) {
       body.detect(source, nowMs);
       if (body.mask) renderer.uploadMask(body.mask, body.maskW, body.maskH);
       readBody(nowMs);
@@ -304,10 +319,10 @@ function frame(nowMs) {
   const tracking = !!(body && usingCamera && body.found && body.mask);
 
   // Blowing: bubbles stream out of your mouth (or the bottom of the screen), more and bigger the harder you blow.
-  const blow = breath ? breath.update(dt) : 0;
+  const blow = face && usingCamera ? face.update(dt) : 0;
   if (blow > 0) {
-    blowCarry += dt * (5 + 22 * blow);
-    const from = (tracking && mouth) || { x: W / 2, y: H * 0.88 };
+    blowCarry += dt * (world.water ? 10 + 45 * blow : 5 + 22 * blow);
+    const from = mouth || { x: W / 2, y: H * 0.88 };
     while (blowCarry >= 1) { blowCarry--; world.blowFrom(from.x, from.y, blow); }
   }
 
@@ -320,7 +335,7 @@ function frame(nowMs) {
     solid: tracking && !world.trap ? solid : null,
     moved,
     hands: tracking ? hands.filter(h => h.seen) : [],
-    mouth: tracking ? mouth : null,
+    mouth: blow > 0 ? mouth : null,
     breath: blow,
     tilt: Math.abs(tilt.x) + Math.abs(tilt.y) > 0.05 ? tilt : null,
   };
@@ -329,7 +344,7 @@ function frame(nowMs) {
 
   meButton.disabled = !!world.trap;
   rotateTips(dt);
-  renderer.draw({ time: t, world, mirror: mirrored(), personOn: tracking });
+  renderer.draw({ time: t, dt, world, mirror: mirrored(), personOn: tracking });
   requestAnimationFrame(frame);
 }
 
@@ -350,8 +365,8 @@ if (gl) {
     statusLine.textContent = 'Opening camera…';
     if (!(await startCamera())) return;
     begin();
-    startMic();
     startBody();
+    startFace();
   });
   $('nocam').addEventListener('click', () => {
     sound.unlock();
@@ -361,7 +376,6 @@ if (gl) {
     flipButton.hidden = true;
     meButton.hidden = true;
     begin();
-    startMic();
   });
 }
 

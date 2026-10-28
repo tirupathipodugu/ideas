@@ -1,11 +1,12 @@
 // Senses: what the app knows about you, beyond taps.
 // - Body: Body Mirror's PoseTracker (MediaPipe Pose, vendored there) run on a small copy of each camera
 //   frame. One model gives the 33 body points (hands, mouth) and a person mask (your outline).
-// - Breath: the microphone, listening for blowing. Blowing is loud, broadband noise (flat spectrum),
-//   unlike speech or music, so it is told apart by level plus spectral flatness, held for a few frames.
+// - Face: macro-mirror's MediaPipe Face Landmarker, for where your lips are and whether they are
+//   pursed into the small O of blowing (its mouthFunnel / mouthPucker / cheekPuff blendshapes).
 // - Tilt: phone tilt becomes a gentle "gravity" for the bubbles, and a hard shake pops them all.
 
 const DETECT_WIDTH = 256;
+const FACE_WIDTH = 320;
 
 export class Body {
   static async create() {
@@ -53,38 +54,70 @@ export class Body {
   }
 }
 
-export class Breath {
-  constructor(ctx, stream) {
-    this.analyser = ctx.createAnalyser();
-    this.analyser.fftSize = 1024;
-    this.analyser.smoothingTimeConstant = 0.2;
-    ctx.createMediaStreamSource(stream).connect(this.analyser);   // never connected to the speakers
-    this.time = new Float32Array(this.analyser.fftSize);
-    this.freq = new Float32Array(this.analyser.frequencyBinCount);
+export class Face {
+  static async create() {
+    const { FaceLandmarker, FilesetResolver } = await import('../../macro-mirror/vendor/mediapipe/vision_bundle.js');
+    const wasm = new URL('../../macro-mirror/vendor/mediapipe/wasm', import.meta.url).href;
+    const model = new URL('../../macro-mirror/assets/face_landmarker.task', import.meta.url).href;
+    // MediaPipe prints routine start-up notes through console.error; they aren't errors.
+    const error = console.error;
+    console.error = (...args) => { if (!/^(INFO|W\d{4}|I\d{4})/.test(String(args[0]))) error(...args); };
+    const files = await FilesetResolver.forVisionTasks(wasm);
+    const options = (delegate) => ({
+      baseOptions: { modelAssetPath: model, delegate },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+    });
+    let landmarker;
+    try {
+      landmarker = await FaceLandmarker.createFromOptions(files, options('GPU'));
+    } catch {
+      landmarker = await FaceLandmarker.createFromOptions(files, options('CPU'));
+    }
+    return new Face(landmarker);
+  }
+
+  constructor(landmarker) {
+    this.landmarker = landmarker;
+    this.canvas = document.createElement('canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.lastStamp = 0;
+    this.mouth = null;          // camera-normalised centre of the lips
+    this.pursed = 0;            // 0..1, how much the lips are pushed into an O
     this.held = 0;
     this.strength = 0;          // 0..1, smoothed
   }
 
+  /** Track one camera frame: where your lips are and whether they are pursed to blow. */
+  detect(source, now) {
+    const w = source.width, h = source.height;
+    if (!w || !h) return;
+    const cw = FACE_WIDTH, ch = Math.round(FACE_WIDTH * h / w);
+    if (this.canvas.width !== cw || this.canvas.height !== ch) { this.canvas.width = cw; this.canvas.height = ch; }
+    this.ctx.drawImage(source.element, 0, 0, cw, ch);
+    const stamp = Math.max(this.lastStamp + 1, Math.round(now));
+    this.lastStamp = stamp;
+    let result;
+    try { result = this.landmarker.detectForVideo(this.canvas, stamp); } catch { return; }
+    const face = result.faceLandmarks && result.faceLandmarks[0];
+    const shapes = result.faceBlendshapes && result.faceBlendshapes[0];
+    if (!face || !shapes) { this.mouth = null; this.pursed = 0; this.held = 0; return; }
+    const top = face[13], bottom = face[14];   // inner upper and lower lip
+    this.mouth = { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 };
+    const score = {};
+    for (const c of shapes.categories) score[c.categoryName] = c.score;
+    // Blowing pushes the lips forward into a small O (funnel / pucker), often with puffed cheeks,
+    // and the jaw stays mostly closed (a wide-open "oh" is not a blow).
+    const o = Math.max(score.mouthFunnel || 0, (score.mouthPucker || 0) * 0.85) + (score.cheekPuff || 0) * 0.3;
+    this.pursed = (score.jawOpen || 0) > 0.45 ? 0 : o;
+    this.held = this.pursed > 0.38 ? this.held + 1 : 0;
+  }
+
+  /** Blow strength 0..1, smoothed. */
   update(dt) {
-    this.analyser.getFloatTimeDomainData(this.time);
-    let sum = 0;
-    for (let i = 0; i < this.time.length; i++) sum += this.time[i] * this.time[i];
-    const rms = Math.sqrt(sum / this.time.length);
-
-    this.analyser.getFloatFrequencyData(this.freq);
-    let logSum = 0, linSum = 0, n = 0;
-    for (let i = 12; i < 200; i++) {            // roughly 0.5 to 9 kHz
-      const m = Math.pow(10, this.freq[i] / 20) + 1e-9;
-      logSum += Math.log(m);
-      linSum += m;
-      n++;
-    }
-    const flatness = Math.exp(logSum / n) / (linSum / n);
-
-    const blowing = rms > 0.025 && flatness > 0.22;
-    this.held = blowing ? this.held + 1 : 0;
-    const target = this.held >= 3 ? Math.min(1, (rms - 0.02) / 0.12) : 0;
-    const rate = target > this.strength ? 12 : 5;
+    const target = this.held >= 2 ? Math.min(1, (this.pursed - 0.3) / 0.45) : 0;
+    const rate = target > this.strength ? 10 : 4;
     this.strength += (target - this.strength) * Math.min(1, dt * rate);
     if (this.strength < 0.02) this.strength = 0;
     return this.strength;

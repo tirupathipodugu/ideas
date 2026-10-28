@@ -1,7 +1,8 @@
 // World: every bubble and particle, and the physics that moves them. Positions are CSS pixels, y down.
 //
 // - Bubbles drift in from the bottom-left corner (and from your mouth when you blow), grow, bounce off
-//   the edges and each other with a squash-and-stretch wobble, swell at the end of life and pop.
+//   the edges and each other with a squash-and-stretch wobble. They never pop on their own: only you
+//   pop them, except when the screen is full, when the oldest swells and pops to make room.
 // - Two bubbles that touch gently join into a double bubble. Real soap films meet at 120 degrees, which
 //   puts the centres sqrt(r1² + r2² − r1·r2) apart; bonds hold that distance, so clusters form a foam.
 // - Your outline (the person mask) is solid: bubbles settle on your head and shoulders and roll off;
@@ -10,15 +11,18 @@
 // - Dragging on empty space stretches a soap film that closes into a giant bubble when you let go.
 // - "Bubble me" seals you in a giant bubble that floats up, pops, and drops you back down.
 // - Time can be slowed (hold empty space); everything here runs on that slowed clock.
+// - Under water (the default) they are air bubbles: buoyancy lifts them, bigger ones faster, they rock
+//   side to side as they rise (real rising bubbles zig-zag) and gather under the surface. A pop breaks
+//   one into a fizz of tiny bubbles, and ice rises too, because ice floats.
 
-const MAX_BUBBLES = 40;
+const MAX_BUBBLES = 90;                 // room for the streams you breathe out under water
 const CORNER_MAX = 30;                 // the corner stream leaves room for blown and tapped bubbles
 const SPAWN_EVERY = [0.22, 0.5];
-const LIFE = [16, 30];
 const SWELL_TIME = 1.4;
 const SWELL = 1.16;
 const POP_TIME = 0.14;
 const DROP_LIFE = 0.55;
+const FIZZ_LIFE = 1.6;
 const ICE_LIFE = 1.8;
 export const SPEED = 1.25;             // drift speed multiplier
 const DELAY = [0.2, 2.5];              // seconds of camera delay per bubble
@@ -37,6 +41,7 @@ export class World {
     this.time = 0;
     this.nextSpawn = 0;
     this.trap = null;
+    this.water = true;
   }
 
   get u() { return Math.min(this.W, this.H); }
@@ -46,15 +51,18 @@ export class World {
   // ---------- Making bubbles ----------
 
   add(x, y, vx, vy, startR, target, extra) {
-    if (this.bubbles.length >= MAX_BUBBLES) return null;
-    const droplet = Math.random() < 0.3;   // some are thick "water drop" lenses that flip the view
+    if (this.live().length >= MAX_BUBBLES) {   // no space: the oldest makes way for the one you asked for
+      const old = this.oldest();
+      if (!old) return null;
+      this.pop(old);
+    }
+    const droplet = !this.water && Math.random() < 0.3;   // some are thick "water drop" lenses that flip the view
     const b = {
       id: nextId++,
       x, y, vx, vy,
       r: startR,
       target,
       age: 0,
-      life: rand(LIFE[0], LIFE[1]),
       seed: Math.random(),
       delay: rand(DELAY[0], DELAY[1]),
       filmClock: Math.random() * 50,
@@ -62,7 +70,7 @@ export class World {
       lens: droplet ? rand(-0.95, -0.75) : rand(0.62, 0.8),
       droplet,
       squash: 0, wobAmp: 0, wobT: 9, wobAxis: 0,
-      pop: 0, popAngle: 0, popAt: 0,
+      pop: 0, popAngle: 0, popAt: 0, retire: 0,
       freeze: 0, freezing: false, frostAngle: 0,
       bonds: [],
       perched: 0,
@@ -75,8 +83,27 @@ export class World {
     return b;
   }
 
+  /** Bubbles still floating (not popping). */
+  live() { return this.bubbles.filter(b => b.pop === 0); }
+
+  /** The oldest bubble nobody is touching. */
+  oldest() {
+    let best = null;
+    for (const b of this.bubbles) {
+      if (b.pop > 0 || b.held || b.trapped || b.freezing || b.retire) continue;
+      if (!best || b.age > best.age) best = b;
+    }
+    return best;
+  }
+
   spawnCorner() {
-    if (this.bubbles.length >= CORNER_MAX) return;
+    if (this.live().length >= CORNER_MAX) {      // no space: the oldest swells and pops, one at a time
+      if (!this.bubbles.some(b => b.retire && b.pop === 0)) {
+        const old = this.oldest();
+        if (old) old.retire = this.time;
+      }
+      return;
+    }
     const u = this.u;
     const a = rand(-1.25, -0.3);
     const s = u * rand(0.22, 0.42) * SPEED;
@@ -87,10 +114,28 @@ export class World {
   /** A bubble blown out of a point (a tap, or your mouth). `power` 0..1. */
   blowFrom(x, y, power = 0.5) {
     const u = this.u;
+    if (this.water) {                            // breathed out under water: a stream of small air bubbles
+      const a = -Math.PI / 2 + rand(-0.5, 0.5);
+      const s = u * (0.15 + 0.35 * power) * SPEED;
+      const b = this.add(x + rand(-6, 6), y + rand(-3, 3), Math.cos(a) * s, Math.sin(a) * s,
+        u * 0.006, u * rand(0.012, 0.03 + 0.04 * power * Math.random()));
+      if (b) this.events.blub(b.target / (u * 0.07));
+      return b;
+    }
     const a = -Math.PI / 2 + rand(-1.2, 1.2);   // up and out, in a fan
     const s = u * (0.25 + 0.6 * power) * SPEED;
     return this.add(x + rand(-4, 4), y + rand(-4, 4), Math.cos(a) * s, Math.sin(a) * s,
       u * 0.012, u * rand(0.035, 0.07 + 0.08 * power));
+  }
+
+  /** A tap on empty space: one bubble, or under water a big air bubble with a few small ones. */
+  tapBubble(x, y) {
+    if (!this.water) return this.blowFrom(x, y, 0.5);
+    const u = this.u;
+    const b = this.add(x, y, rand(-0.05, 0.05) * u, -u * 0.1, u * 0.01, u * rand(0.045, 0.09));
+    if (b) this.events.blub(1);
+    for (let i = 0; i < 5; i++) this.blowFrom(x + rand(-u * 0.03, u * 0.03), y + rand(0, u * 0.03), 0.3);
+    return b;
   }
 
   seed(n) {
@@ -141,7 +186,7 @@ export class World {
         vx: Math.cos(a) * s + b.vx * 0.3,
         vy: Math.sin(a) * s + b.vy * 0.3,
         size: rand(1.5, 4.5) * (0.6 + b.r / this.u * 5),
-        age: 0, life: DROP_LIFE, rot: 0, spin: 0,
+        age: 0, life: this.water ? FIZZ_LIFE * rand(0.6, 1.2) : DROP_LIFE, rot: 0, spin: 0,
       });
     }
   }
@@ -216,7 +261,6 @@ export class World {
     b.vx = (sp > max ? vx * max / sp : vx) * 0.5;
     b.vy = (sp > max ? vy * max / sp : vy) * 0.5;
     b.age = 0.4;
-    b.life = rand(18, 30);
     this.wobble(b, 0.2, Math.atan2(b.tipY - b.anchorY, b.tipX - b.anchorX));
     this.events.whoosh(0.7, 0.08);
   }
@@ -237,7 +281,7 @@ export class World {
 
   startTrap(pivotX, pivotY, R) {
     if (this.trap) return false;
-    const b = this.add(pivotX, pivotY, 0, 0, R * 0.25, R, { trapped: true, giant: true, lens: 1, droplet: false, life: 1e9 });
+    const b = this.add(pivotX, pivotY, 0, 0, R * 0.25, R, { trapped: true, giant: true, lens: 1, droplet: false });
     if (!b) return false;
     this.trap = { b, t: 0, phase: 'form', pivotX, pivotY, R, offX: 0, offY: 0, scale: 1, vy: 0, landed: false };
     this.events.whoosh(1.6, 0.14);
@@ -326,18 +370,26 @@ export class World {
         b.freeze = Math.max(0, b.freeze - dt * 0.6);
       }
 
-      // Grow; at the end of life swell a little, shimmer faster, then pop.
-      const swelling = b.age > b.life && !b.freezing;
+      // Grow; when making room, swell a little, shimmer faster, then pop.
+      const swelling = b.retire > 0 && !b.freezing;
       const goal = swelling ? b.target * SWELL : b.target;
       b.r += (goal - b.r) * (1 - Math.exp(-dt / (swelling ? 0.5 : (b.giant ? 0.3 : 1.4))));
       if (swelling) {
         b.shimmer = Math.min(1, b.shimmer + dt * 1.5);
         if (b.wobAmp < 0.03) this.wobble(b, 0.04, rand(0, Math.PI));
-        if (b.age > b.life + SWELL_TIME) { this.pop(b); continue; }
+        if (this.time > b.retire + SWELL_TIME) { this.pop(b); continue; }
       }
 
-      // Forces: a little gravity (real bubbles slowly sink), phone tilt, hands, breath.
-      b.vy += u * 0.05 * dt;
+      // Forces: a little gravity (soap bubbles slowly sink) or buoyancy under water, phone tilt, hands, breath.
+      if (this.water) {
+        const rise = -u * (0.1 + 2.2 * b.r / u) * SPEED;       // bigger bubbles rise faster
+        b.vy += (rise - b.vy) * Math.min(1, dt * 1.6);
+        b.vx += Math.sin(this.time * (3 + b.seed * 3) + b.seed * 40) * u * 0.25 * dt;
+        b.vx *= Math.exp(-0.8 * dt);
+        if (b.wobAmp < 0.02 && b.r > u * 0.03) this.wobble(b, 0.035, rand(0, Math.PI));
+      } else {
+        b.vy += u * 0.05 * dt;
+      }
       if (env.tilt) { b.vx += env.tilt.x * u * 1.4 * dt; b.vy += env.tilt.y * u * 1.4 * dt; }
       for (const h of env.hands) {
         const d = Math.hypot(b.x - h.x, b.y - h.y);
@@ -372,7 +424,7 @@ export class World {
       // Lazy screensaver pace while floating free; resting or bonded bubbles keep their own motion.
       const sp = Math.hypot(b.vx, b.vy);
       const minSp = u * 0.16 * SPEED, maxSp = u * 0.5 * SPEED;
-      if (b.perched <= 0 && !b.bonds.length && !b.freezing && sp > 0 && sp < minSp) {
+      if (!this.water && b.perched <= 0 && !b.bonds.length && !b.freezing && sp > 0 && sp < minSp) {
         const f = 1 + (minSp / sp - 1) * Math.min(1, dt * 1.5);
         b.vx *= f; b.vy *= f;
       }
@@ -385,7 +437,12 @@ export class World {
       const kick = v => Math.abs(v) / (u * SPEED) * 0.5;
       if (b.x - b.r < 0 && b.vx < 0) { b.x = b.r; b.vx = -b.vx; this.wobble(b, kick(b.vx), 0); }
       if (b.x + b.r > this.W && b.vx > 0) { b.x = this.W - b.r; b.vx = -b.vx; this.wobble(b, kick(b.vx), 0); }
-      if (b.y - b.r < 0 && b.vy < 0) { b.y = b.r; b.vy = -b.vy; this.wobble(b, kick(b.vy), Math.PI / 2); }
+      if (b.y - b.r < 0 && b.vy < 0) {
+        if (this.water) {                        // gathers under the surface and drifts along it
+          if (b.vy < -u * 0.1) this.wobble(b, kick(b.vy) * 0.6, Math.PI / 2);
+          b.y = b.r; b.vy = 0;
+        } else { b.y = b.r; b.vy = -b.vy; this.wobble(b, kick(b.vy), Math.PI / 2); }
+      }
       if (b.y + b.r > this.H && b.vy > 0 && b.age > 1.5) { b.y = this.H - b.r; b.vy = -b.vy; this.wobble(b, kick(b.vy), Math.PI / 2); }
 
       // Your outline is solid.
@@ -402,12 +459,13 @@ export class World {
     this.bubbles = this.bubbles.filter(b => b.pop < 1);
     for (const p of this.particles) {
       p.age += dt;
+      const fall = this.water ? -0.35 : 1;      // under water the fizz and the ice float up
       if (p.kind === 0) {
-        p.vx *= 1 - dt * 2.5;
-        p.vy = p.vy * (1 - dt * 2.5) + u * 1.6 * dt;
+        p.vx *= 1 - dt * (this.water ? 4 : 2.5);
+        p.vy = p.vy * (1 - dt * (this.water ? 4 : 2.5)) + u * 1.6 * fall * dt;
       } else {
-        p.vx *= 1 - dt * 0.8;
-        p.vy = p.vy * (1 - dt * 0.8) + u * 2.2 * dt;
+        p.vx *= 1 - dt * (this.water ? 2 : 0.8);
+        p.vy = p.vy * (1 - dt * (this.water ? 2 : 0.8)) + u * 2.2 * fall * dt;
         p.rot += p.spin * dt;
       }
       p.x += p.vx * dt;

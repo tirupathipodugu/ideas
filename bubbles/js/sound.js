@@ -1,7 +1,8 @@
 // Sound: all synthesised with WebAudio, on by default (it starts on the first tap, as browsers
 // require). A pop is a tiny noise burst plus a falling blip; freezing is a dry crackle; a frozen bubble
 // shattering is a glassy tinkle; a giant bubble or "Bubble me" lifting off is a soft airy swell; and
-// you landing back is a low thud. The microphone (for blowing bubbles) shares this audio context.
+// you landing back is a low thud. Under water there is a soft deep rumble, pops turn into gloops and
+// every bubble you breathe out goes "bloop".
 
 const STORAGE_KEY = 'bubbles:sound';
 
@@ -11,6 +12,9 @@ export class Sound {
     this.noise = null;
     try { this.on = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { this.on = true; }
     this.lastCrackle = 0;
+    this.lastBlub = 0;
+    this.deep = null;           // the under-water rumble's gain, once started
+    this.wantDeep = false;
   }
 
   /** Create or resume the audio context. Call from inside a tap or click. */
@@ -23,12 +27,41 @@ export class Sound {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    this.ambience(this.wantDeep);
     return this.ctx;
+  }
+
+  /** The deep, slowly breathing rumble you hear under water. */
+  ambience(on) {
+    this.wantDeep = on;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.deep) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 320;
+      f.Q.value = 0.6;
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = 0.12;
+      depth.gain.value = 140;
+      lfo.connect(depth).connect(f.frequency);
+      this.deep = ctx.createGain();
+      this.deep.gain.value = 0;
+      src.connect(f).connect(this.deep).connect(ctx.destination);
+      src.start();
+      lfo.start();
+    }
+    this.deep.gain.setTargetAtTime(on && this.on ? 0.07 : 0, ctx.currentTime, 0.6);
   }
 
   setOn(on) {
     this.on = on;
     this.unlock();
+    this.ambience(this.wantDeep);
     try { localStorage.setItem(STORAGE_KEY, on ? 'on' : 'off'); } catch { /* private mode */ }
   }
 
@@ -68,15 +101,31 @@ export class Sound {
   }
 
   /** A bubble popping. `big` 0..1; `slow` stretches it when time is slowed down. */
-  pop(big, slow = 1) {
+  pop(big, slow = 1, water = false) {
     const ctx = this.ready();
     if (!ctx) return;
     const t = ctx.currentTime;
+    if (water) {                      // under water a pop is a low, muffled gloop
+      this.burst(t, 0.07 * (slow < 0.5 ? 3 : 1), 'lowpass', 700, 0.9, 0.12 + 0.2 * big);
+      const f = (520 - 250 * big) * (0.9 + Math.random() * 0.2);
+      this.tone(t, f, f * 1.7, 0.12 + 0.1 * big, 0.12 + 0.15 * big);
+      return;
+    }
     const level = 0.1 + 0.25 * big;
     const stretch = slow < 0.5 ? 3 : 1;
     this.burst(t, 0.045 * stretch, 'bandpass', (2600 - 1300 * big + Math.random() * 500) / stretch, 1.4, level);
     const f = (1100 - 500 * big + Math.random() * 200) / stretch;
     this.tone(t, f, f * 0.35, 0.06 * stretch, level * 0.8);
+  }
+
+  /** An air bubble let go under water: a quick rising "bloop" (smaller bubbles ring higher). */
+  blub(size = 0.5) {
+    const ctx = this.ready();
+    if (!ctx || ctx.currentTime - this.lastBlub < 0.03) return;
+    this.lastBlub = ctx.currentTime;
+    const t = ctx.currentTime;
+    const f = (1500 - 1100 * size) * (0.85 + Math.random() * 0.3);
+    this.tone(t, f, f * 1.9, 0.05 + 0.08 * size, 0.05 + 0.1 * size);
   }
 
   /** Frost spreading: sparse dry ticks. Call every frame while freezing; it paces itself. */

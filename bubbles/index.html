@@ -1,20 +1,20 @@
 <!doctype html>
-<!-- Bubbles: the old Windows bubble screensaver with real bubble physics; you stand in a garden and play with them. -->
+<!-- Bubbles: the old Windows bubble screensaver with real bubble physics; you're under water (or in the air) and play with them. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
 <title>Bubbles</title>
-<meta name="description" content="Blow real-looking soap bubbles out of your mouth, push them with your hands, freeze them, and float away inside one.">
-<meta name="theme-color" content="#0d2410">
+<meta name="description" content="Go under water and breathe out real-looking bubbles, push them with your hands, freeze them, and float away inside one.">
+<meta name="theme-color" content="#0b0d10">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2305070c%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22none%22 stroke=%22%23bfe9ff%22 stroke-width=%221.6%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%222.4%22 fill=%22%23fff%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<canvas id="view" aria-label="Soap bubbles reflecting your camera"></canvas>
+<canvas id="view" aria-label="Bubbles floating over your camera"></canvas>
 <video id="cam" playsinline muted autoplay hidden></video>
 
 <p class="badge" id="badge" role="status" hidden></p>
@@ -22,6 +22,7 @@
 
 <nav class="controls" aria-label="Controls">
   <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
+  <button type="button" id="water" class="pill" aria-pressed="true"><span aria-hidden="true">🌊</span> Underwater</button>
   <button type="button" id="me" class="pill accent"><span aria-hidden="true">🫧</span> Bubble me</button>
   <button type="button" id="flip" class="pill"><span aria-hidden="true">🔄</span> Flip</button>
   <button type="button" id="full" class="pill"><span aria-hidden="true">⛶</span> Full</button>
@@ -30,14 +31,14 @@
 <div class="start" id="start">
   <div class="startcard">
     <p class="kicker">Bubbles</p>
-    <h2>Remember the bubble screensaver? Now you can play with it.</h2>
+    <h2>Remember the bubble screensaver? Now you're under water with it.</h2>
     <ul class="tries">
-      <li>Blow at your screen, bubbles come out of your mouth</li>
+      <li>Purse your lips and blow, bubbles come out of your mouth</li>
       <li>Wave to push them, they land on your shoulders</li>
       <li>Hold one to freeze it, drag for a giant one</li>
       <li>Tap “Bubble me” and float away</li>
     </ul>
-    <p>Uses your camera and microphone. Everything stays on your device; nothing is uploaded or saved.</p>
+    <p>Uses your camera. Everything stays on your device; nothing is uploaded or saved.</p>
     <button type="button" id="go" class="primary">Start</button>
     <button type="button" id="nocam" class="link">Continue without camera</button>
     <p class="status" id="status" role="status"></p>

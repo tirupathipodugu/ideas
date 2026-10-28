@@ -1,12 +1,11 @@
 // Renderer (WebGL2). Each frame:
-//  1. the garden background, at half resolution;
-//  2. the scene: the garden with you cut out of the camera and standing in it (your person mask), moved
-//     and clipped into the "Bubble me" bubble when that is running;
-//  3. the scene copied to the screen;
-//  4. the bubbles, which bend the scene behind them like lenses (soap bubbles magnify a little, thick
+//  1. the scene: the live camera, with you cut out of it (your person mask), moved and clipped into
+//     the "Bubble me" bubble when that is running;
+//  2. the scene copied to the screen;
+//  3. the bubbles, which bend the scene behind them like lenses (soap bubbles magnify a little, thick
 //     water-drop bubbles flip it upside down), carry the delayed camera as a reflection, swirl with
 //     thin-film colour, share flat walls where they have joined, and grow frost when held;
-//  5. droplets and ice shards.
+//  4. droplets and ice shards.
 
 import { createProgram } from './gl-utils.js';
 
@@ -18,77 +17,13 @@ void main() {
   gl_Position = vec4(corner, 0.0, 1.0);
 }`;
 
-// A soft-focus garden, like a photo shot through a wide-open lens: sunlit leaves up top, a warm sun
-// glow top-right, deep foliage in the middle, blurred grass along the bottom and drifting light bokeh.
-const BACKGROUND_FS = `#version 300 es
-precision highp float;
-in vec2 vUv;
-uniform vec2 uAspect;
-uniform float uTime;
-out vec4 outColor;
-
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-float fbm(vec2 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 4; i++) { s += a * noise(p); p = p * 2.07 + 3.1; a *= 0.5; }
-  return s;
-}
-
-vec3 bokeh(vec2 p, float cell, float t, vec3 tint, float amount) {
-  vec2 g = p / cell;
-  vec2 id = floor(g);
-  vec3 sum = vec3(0.0);
-  for (int y = -1; y <= 1; y++)
-  for (int x = -1; x <= 1; x++) {
-    vec2 c = id + vec2(x, y);
-    float h = hash(c);
-    if (h > amount) continue;
-    vec2 centre = c + 0.5 + 0.35 * vec2(sin(t * 0.3 + h * 40.0), cos(t * 0.25 + h * 23.0));
-    float r = 0.18 + 0.22 * hash(c + 7.0);
-    float d = length(g - centre);
-    float disc = smoothstep(r, r * 0.86, d) * (0.55 + 0.45 * smoothstep(r * 0.5, r, d));
-    sum += tint * disc * (0.35 + 0.65 * hash(c + 3.0));
-  }
-  return sum;
-}
-
-void main() {
-  vec2 p = vUv * uAspect;
-  float t = uTime;
-  float y = vUv.y;
-  vec2 sun = vec2(0.82, 1.08) * uAspect;
-  float glow = exp(-2.2 * length(p - sun));
-  vec2 sway = vec2(sin(t * 0.21) * 0.03, cos(t * 0.17) * 0.02);
-  float leaves = fbm(p * 2.6 + sway + vec2(0.0, t * 0.01));
-  float fine = fbm(p * 7.0 - sway * 2.0 + 11.0);
-  vec3 deep = vec3(0.035, 0.11, 0.045);
-  vec3 mid = vec3(0.13, 0.33, 0.10);
-  vec3 lit = vec3(0.56, 0.78, 0.30);
-  vec3 col = mix(deep, mid, smoothstep(0.30, 0.70, leaves));
-  col = mix(col, lit, smoothstep(0.55, 0.85, leaves * 0.75 + fine * 0.35) * (0.35 + 1.2 * glow) * smoothstep(0.2, 0.75, y));
-  col += vec3(1.0, 0.92, 0.65) * glow * 0.55;
-  float ground = smoothstep(0.30, 0.0, y);
-  float blades = noise(vec2(p.x * 60.0 + sin(t * 0.6 + p.x * 3.0) * 0.6, y * 3.0));
-  vec3 grass = mix(vec3(0.05, 0.16, 0.04), vec3(0.30, 0.52, 0.12), blades * smoothstep(0.0, 0.25, y) + 0.2 * fine);
-  col = mix(col, grass, ground * 0.85);
-  float near = smoothstep(0.1, 0.9, y) * (0.4 + 1.6 * glow);
-  col += bokeh(p + vec2(t * 0.004, 0.0), 0.22, t, vec3(0.85, 0.95, 0.55), 0.35) * 0.30 * near;
-  col += bokeh(p + 5.0, 0.09, t * 1.3, vec3(1.0, 0.97, 0.75), 0.25) * 0.22 * near;
-  vec2 c = vUv - 0.5;
-  col *= 1.0 - 0.55 * dot(c, c);
-  outColor = vec4(pow(col, vec3(0.95)), 1.0);
-}`;
-
-// You, cut out of the camera and standing in the garden.
+// The live camera as the background. While "Bubble me" carries you away, your cut-out moves and
+// a soft shadow stays where you stood. Under water (uWater) the whole view ripples as if seen through
+// moving water, colours shift blue-green and darken with depth (water soaks up red first), caustics
+// dance over everything, sun rays slant down from a shimmering surface, and specks drift past.
 const COMPOSE_FS = `#version 300 es
 precision highp float;
 in vec2 vUv;
-uniform sampler2D uBg;
 uniform sampler2D uCam;
 uniform sampler2D uMask;
 uniform float uPersonOn;
@@ -98,12 +33,46 @@ uniform float uMirror;
 uniform vec3 uTrap;         // offset x, offset y (px), scale
 uniform vec2 uPivot;        // px
 uniform vec4 uClip;         // bubble centre x, y, radius (px), on
+uniform float uWater;       // 0 in the air .. 1 under water
+uniform float uTime;
 out vec4 outColor;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+// Light focused by the moving surface into bright wandering lines (a classic iterative caustic).
+float caustic(vec2 uv, float t) {
+  vec2 p = mod(uv * 6.28318, 6.28318) - 250.0;
+  vec2 i = p;
+  float c = 1.0;
+  for (int n = 0; n < 4; n++) {
+    float tt = t * (1.0 - 3.5 / float(n + 1));
+    i = p + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
+    c += 1.0 / length(vec2(p.x / (sin(i.x + tt) / 0.005), p.y / (cos(i.y + tt) / 0.005)));
+  }
+  c /= 4.0;
+  c = 1.17 - pow(c, 1.4);
+  return pow(abs(c), 8.0);
+}
+
 void main() {
-  vec3 bg = texture(uBg, vUv).rgb;
+  vec2 px = vec2(vUv.x, 1.0 - vUv.y) * uStage;
+  float unit = min(uStage.x, uStage.y);
+  vec2 sp = px / unit;
+  float t = uTime;
+  vec2 wob = vec2(sin(sp.y * 9.0 + t * 1.7) + sin(sp.x * 5.0 - t * 1.3),
+                  cos(sp.x * 8.0 + t * 1.5) + sin(sp.y * 6.0 + t * 1.1));
+  px += wob * 0.004 * unit * uWater;
+  vec2 rs = px / uStage;
+  if (uMirror > 0.5) rs.x = 1.0 - rs.x;
+  vec2 ruv = 0.5 + (rs - 0.5) * uCover;
+  vec3 bg = texture(uCam, ruv).rgb;
+  bool moving = uTrap.z != 1.0 || uTrap.x != 0.0 || uTrap.y != 0.0;
+  if (uPersonOn > 0.5 && moving) bg *= 1.0 - 0.75 * smoothstep(0.3, 0.7, texture(uMask, ruv).r);
   vec3 col = bg;
-  if (uPersonOn > 0.5) {
-    vec2 px = vec2(vUv.x, 1.0 - vUv.y) * uStage;
+  if (uPersonOn > 0.5 && moving) {
     vec2 q = uPivot + (px - uPivot - uTrap.xy) / uTrap.z;
     vec2 s = q / uStage;
     if (uMirror > 0.5) s.x = 1.0 - s.x;
@@ -112,11 +81,37 @@ void main() {
       float a = smoothstep(0.3, 0.7, texture(uMask, cuv).r);
       if (uClip.w > 0.5) a *= smoothstep(uClip.z, uClip.z * 0.93, length(px - uClip.xy));
       vec3 cam = texture(uCam, cuv).rgb;
-      cam = mix(cam, cam * vec3(0.96, 1.03, 0.9) + vec3(0.01, 0.02, 0.0), 0.6);   // into the garden's light
-      float rim = a * (1.0 - a) * 4.0;
-      cam += bg * rim * 0.6;                                                         // light wrap round the edge
       col = mix(bg, cam, a);
     }
+  }
+  if (uWater > 0.0) {
+    float depth = clamp(px.y / uStage.y, 0.0, 1.0);    // 0 at the surface, 1 at the bottom
+    vec3 under = col * mix(vec3(0.55, 0.86, 0.95), vec3(0.16, 0.48, 0.68), depth)
+               + vec3(0.0, 0.06, 0.11) * (1.0 - depth * 0.5);
+    float c = caustic(sp * 0.8 + vec2(0.0, t * 0.015), t * 0.4);
+    under += vec3(0.55, 0.9, 1.0) * c * 0.38 * (1.0 - depth * 0.7);
+    float x = sp.x + sp.y * 0.35;
+    float rays = pow(0.5 + 0.5 * sin(x * 7.0 + t * 0.3), 6.0)
+               + 0.6 * pow(0.5 + 0.5 * sin(x * 13.0 - t * 0.21 + 1.7), 8.0)
+               + 0.4 * pow(0.5 + 0.5 * sin(x * 3.1 + t * 0.13 + 4.0), 4.0);
+    under += vec3(0.6, 0.9, 1.0) * rays * 0.13 * (1.0 - depth) * (1.0 - depth);
+    float edge = depth + 0.012 * sin(sp.x * 20.0 + t * 2.0) + 0.008 * sin(sp.x * 37.0 - t * 3.1);
+    under += vec3(0.75, 0.95, 1.0) * smoothstep(0.07, 0.0, edge) * 0.5;
+    for (int L = 0; L < 2; L++) {
+      float g = L == 0 ? 0.06 : 0.11;
+      float sp2 = 1.0 + float(L);
+      vec2 q = sp / g + vec2(sin(t * 0.2 + float(L)) * 0.6, t * 0.18 * sp2);
+      vec2 id = floor(q);
+      float hh = h21(id + float(L) * 17.0);
+      if (hh > 0.6) {
+        vec2 pos = vec2(h21(id + 3.1), h21(id + 7.7)) * 0.8 + 0.1;
+        float d = length(fract(q) - pos);
+        under += vec3(0.75, 0.92, 1.0) * smoothstep(0.07 * sp2, 0.0, d) * (0.12 + 0.12 * sin(t * 2.0 + hh * 40.0)) * sp2;
+      }
+    }
+    vec2 v = vUv - 0.5;
+    under *= 1.0 - 0.7 * dot(v, v);
+    col = mix(col, under, uWater);
   }
   outColor = vec4(col, 1.0);
 }`;
@@ -170,6 +165,7 @@ uniform highp sampler2DArray uHist;
 uniform sampler2D uScene;
 uniform vec2 uStage;
 uniform float uMirror;
+uniform float uWater;       // under water these are air bubbles: silvery, and they shrink what's behind
 out vec4 outColor;
 
 float hash(vec3 p) {
@@ -258,6 +254,7 @@ void main() {
 
   // What's behind, bent: soap magnifies a little (more near the rim), a water drop flips it over.
   float k = vLook.w * (1.0 + (drop > 0.5 ? 0.1 : 0.3) * rr * rr);
+  k = mix(k, 1.45 + 0.9 * rr * rr, uWater);              // an air pocket in water is a diverging lens
   vec2 lensPx = c0 + (px - c0) * k;
   vec3 col = texture(uScene, vec2(lensPx.x, uStage.y - lensPx.y) / uStage).rgb;
   if (drop > 0.5) {
@@ -273,6 +270,7 @@ void main() {
   float camA = mix(0.18, 0.62, rim) * (drop > 0.5 ? 0.35 : 1.0);
   col = mix(col, cam * mix(vec3(1.0), 0.55 + 0.9 * iri, 0.35), camA);
 
+  iri = mix(iri, vec3(0.88, 0.97, 1.0), 0.7 * uWater);     // no soap film under water, just air and light
   float filmA = (0.05 + 0.75 * fres + 0.18 * rim) * (drop > 0.5 ? 0.4 : 1.0);
   col += iri * filmA * 0.75;
 
@@ -302,6 +300,10 @@ void main() {
   col += vec3(win * (drop > 0.5 ? 0.9 : 0.6) + spot * 0.4);
 
   float edge = smoothstep(0.93, 1.0, rr);
+  // Seen from the water, the rim reflects everything (total internal reflection): a dark band inside
+  // a bright silver ring.
+  col *= 1.0 - 0.35 * uWater * smoothstep(0.74, 0.88, rr) * smoothstep(0.99, 0.9, rr);
+  col += vec3(0.85, 0.96, 1.0) * edge * 0.6 * uWater;
   col += (0.35 + 0.65 * iri) * edge * 0.55;
   col += (0.5 + 0.5 * iri) * wall * 0.6;
   col += vec3(1.0) * tear * 0.9;
@@ -351,7 +353,7 @@ void main() {
 }`;
 
 const FLOATS = 32;
-const MAX_INSTANCES = 64;
+const MAX_INSTANCES = 96;
 const HISTORY = 80;
 const HISTORY_SIZE = 256;
 
@@ -361,7 +363,6 @@ export class Renderer {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: true });
     this.gl = gl;
     if (!gl) return;
-    this.bg = createProgram(gl, FULLSCREEN_VS, BACKGROUND_FS);
     this.compose = createProgram(gl, FULLSCREEN_VS, COMPOSE_FS);
     this.blit = createProgram(gl, FULLSCREEN_VS, BLIT_FS);
     this.capture = createProgram(gl, FULLSCREEN_VS, CAPTURE_FS);
@@ -452,7 +453,6 @@ export class Renderer {
     this.canvas.width = Math.round(W * dpr);
     this.canvas.height = Math.round(H * dpr);
     this.scene = this.target(this.scene, this.canvas.width, this.canvas.height);
-    this.bgTarget = this.target(this.bgTarget, Math.max(1, this.canvas.width >> 1), Math.max(1, this.canvas.height >> 1));
   }
 
   /** A new camera frame: keep it for compositing you, and add it to the delay history. */
@@ -508,26 +508,18 @@ export class Renderer {
     return [this.W / (this.camW * s), this.H / (this.camH * s)];
   }
 
-  draw({ time, world, mirror, personOn }) {
+  draw({ time, dt = 0.016, world, mirror, personOn }) {
     const gl = this.gl;
+    this.waterMix = (this.waterMix ?? (world.water ? 1 : 0)) + ((world.water ? 1 : 0) - (this.waterMix ?? 0)) * Math.min(1, dt * 2);
     const W = this.W, H = this.H;
     const u = Math.min(W, H);
 
-    // 1. Garden.
+    // 1. The camera behind everything (and you, when "Bubble me" moves you).
     gl.disable(gl.BLEND);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bgTarget.fbo);
-    gl.viewport(0, 0, this.bgTarget.w, this.bgTarget.h);
-    gl.useProgram(this.bg.program);
-    gl.uniform2f(this.bg.u.uAspect, W / u, H / u);
-    gl.uniform1f(this.bg.u.uTime, time);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-
-    // 2. You in the garden.
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fbo);
     gl.viewport(0, 0, this.scene.w, this.scene.h);
     const c = this.compose;
     gl.useProgram(c.program);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.bgTarget.tex); gl.uniform1i(c.u.uBg, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.camTexture); gl.uniform1i(c.u.uCam, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.maskTexture); gl.uniform1i(c.u.uMask, 2);
     gl.uniform1f(c.u.uPersonOn, personOn ? 1 : 0);
@@ -540,16 +532,18 @@ export class Renderer {
     gl.uniform2f(c.u.uPivot, T ? T.pivotX : 0, T ? T.pivotY : 0);
     const clipOn = T && T.b.pop === 0;
     gl.uniform4f(c.u.uClip, clipOn ? T.b.x : 0, clipOn ? T.b.y : 0, clipOn ? T.b.r : 0, clipOn ? 1 : 0);
+    gl.uniform1f(c.u.uWater, this.waterMix);
+    gl.uniform1f(c.u.uTime, time % 1000);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // 3. To the screen.
+    // 2. To the screen.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.useProgram(this.blit.program);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex); gl.uniform1i(this.blit.u.uScene, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // 4. Bubbles: smallest first, giants and "Bubble me" on top.
+    // 3. Bubbles: smallest first, giants and "Bubble me" on top.
     const order = world.bubbles.slice().sort((a, b) => (a.trapped - b.trapped) || (a.r - b.r));
     const d = this.instanceData;
     let k = 0;
@@ -579,6 +573,7 @@ export class Renderer {
       gl.useProgram(p.program);
       gl.uniform2f(p.u.uStage, W, H);
       gl.uniform1f(p.u.uMirror, mirror ? 1 : 0);
+      gl.uniform1f(p.u.uWater, this.waterMix);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.history); gl.uniform1i(p.u.uHist, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex); gl.uniform1i(p.u.uScene, 1);
       gl.bindVertexArray(this.quadVao);
@@ -587,7 +582,7 @@ export class Renderer {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, k);
     }
 
-    // 5. Droplets and ice.
+    // 4. Droplets and ice.
     const parts = world.particles;
     if (parts.length) {
       const pd = this.partData;

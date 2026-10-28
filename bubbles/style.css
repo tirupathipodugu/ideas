@@ -1,6 +1,6 @@
 /* Bubbles: near-black desktop so the film colours and the camera reflection carry the page. */
 :root {
-  --bg: #0d2410;
+  --bg: #0b0d10;
   --ice: #bfe9ff;
   --ink: #f2f6fa;
   --muted: rgba(242, 246, 250, .72);
@@ -18,11 +18,11 @@ canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 
 .hint { position: fixed; z-index: 2; left: 50%; transform: translateX(-50%); bottom: max(96px, calc(env(safe-area-inset-bottom) + 86px)); margin: 0; font-size: 14px; color: var(--ink); font-weight: 600; text-align: center; width: calc(100% - 2 * var(--gutter)); transition: opacity .8s; pointer-events: none; text-shadow: 0 1px 6px #000; }
 
-.controls { position: fixed; z-index: 2; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; gap: 6px; padding: 6px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); max-width: calc(100% - 2 * var(--gutter)); }
+.controls { position: fixed; z-index: 2; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 6px; border-radius: 30px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); max-width: calc(100% - 2 * var(--gutter)); }
 .pill { min-height: 48px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; font-size: 14px; font-weight: 650; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .pill:hover { background: rgba(255,255,255,.08); }
 .pill[aria-pressed="false"] { color: var(--muted); }
-@media (max-width: 420px) { .pill { padding: 0 10px; gap: 4px; } }
+@media (max-width: 420px) { .controls { width: calc(100% - 2 * var(--gutter)); } .pill { padding: 0 10px; gap: 4px; } }
 
 .start { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: var(--gutter); background: radial-gradient(circle at 50% 35%, rgba(20,34,52,.92), rgba(5,7,12,.96) 70%); }
 .startcard { max-width: 380px; text-align: center; display: grid; gap: 10px; }
