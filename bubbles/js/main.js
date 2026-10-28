@@ -51,6 +51,7 @@ const world = new World({
 
 let W = 0, H = 0;
 const sea = new Sea();
+sea.onWhale = () => sound.whale();
 
 function resize() {
   W = window.innerWidth;
@@ -162,7 +163,10 @@ canvas.addEventListener('pointermove', e => {
       g.mode = g.wand ? 'wand' : 'none';
     }
   }
-  if (g.mode === 'stir') world.fluid.splat(g.x, g.y, g.vx, g.vy, unit() * 0.09);
+  if (g.mode === 'stir') {
+    world.fluid.splat(g.x, g.y, g.vx, g.vy, unit() * 0.09);
+    world.glow(g.x, g.y, 5, 0.6, g.vx, g.vy);      // the sea lights up where you stir it
+  }
   if (g.mode === 'wand') world.wandMove(g.wand, g.x, g.y);
   if (g.mode === 'bubble' && far > 24) g.mode = 'none';
 });
@@ -173,7 +177,10 @@ function endGesture(e, cancelled) {
   gestures.delete(e.pointerId);
   if (g.mode === 'bubble' && !cancelled && g.bubble.pop === 0) world.poke(g.bubble, g.x, g.y);
   else if (g.mode === 'freeze') world.endFreeze(g.bubble);
-  else if (g.mode === 'empty' && !cancelled) world.tapBubble(g.x, g.y);
+  else if (g.mode === 'empty' && !cancelled) {
+    world.tapBubble(g.x, g.y);
+    if (world.water) world.glow(g.x, g.y, 26, 1.3);
+  }
   else if (g.mode === 'wand') world.wandRelease(g.wand, g.vx, g.vy);
   else if (g.mode === 'slow') slowHolds--;
 }
@@ -229,6 +236,8 @@ function setWater(on) {
   waterButton.setAttribute('aria-pressed', String(on));
   waterButton.innerHTML = on ? '<span aria-hidden="true">🌊</span> Underwater' : '<span aria-hidden="true">🌤️</span> In the air';
   try { localStorage.setItem('bubbles:water', on ? 'on' : 'off'); } catch { /* private mode */ }
+  meButton.hidden = on || !usingCamera;           // under water you're the diver, not cut out of the camera
+  if (!on && usingCamera && !body) startBody();   // body tracking is only needed in the air
 }
 let startWater = true;
 try { startWater = localStorage.getItem('bubbles:water') !== 'off'; } catch { /* private mode */ }
@@ -247,7 +256,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 const TIPS = [
-  'Purse your lips and blow: bubbles come out of your mouth',
+  () => world.water ? 'Purse your lips and blow: bubbles come out of your helmet' : 'Purse your lips and blow: bubbles come out of your mouth',
   'Wave your hand to push them',
   'Hold a bubble to freeze it, let go to shatter it',
   () => world.water ? 'Swipe to stir the water into whirlpools' : 'Drag across empty space for a giant bubble',
@@ -263,7 +272,7 @@ function rotateTips(dt) {
   if (tipTimer < 4.5) return;
   tipTimer = 0;
   do tip = (tip + 1) % TIPS.length;
-  while (!usingCamera && (tip === 1 || tip === 5));
+  while ((!usingCamera || world.water) && (tip === 1 || tip === 5));
   hint.textContent = typeof TIPS[tip] === 'function' ? TIPS[tip]() : TIPS[tip];
 }
 
@@ -302,7 +311,12 @@ function note(text, ms) {
 }
 
 // The two models load one after the other: MediaPipe can stall when two tasks start at once.
-async function startTracking() {
+// Under water only the face model is needed (your face in the helmet, and blowing); the body model
+// (hands, outline, "Bubble me") loads when you go into the air.
+let bodyLoading = false;
+async function startBody() {
+  if (bodyLoading) return;
+  bodyLoading = true;
   note('Loading body tracking…');
   try {
     body = await withTimeout(Body.create());
@@ -310,12 +324,18 @@ async function startTracking() {
   } catch {
     note('Body tracking unavailable', 3000);
   }
+}
+
+async function startTracking() {
+  note('Finding your face…');
   try {
-    face = await withTimeout(Face.create());   // lips, for blowing bubbles
+    face = await withTimeout(Face.create());
+    note('');
   } catch {
     face = null;              // no face tracking: tapping still makes bubbles
-    note('Blowing unavailable, tap to make bubbles', 4000);
+    note('Face tracking unavailable, tap to make bubbles', 4000);
   }
+  if (!world.water) await startBody();
 }
 
 // ---------- Frame ----------
@@ -329,22 +349,22 @@ function frame(nowMs) {
   if (source && source.takeFrame()) {
     renderer.uploadFrame(source, t);
     faceTurn = !faceTurn;
-    if (face && usingCamera && (faceTurn || !body)) {
+    if (face && usingCamera && (faceTurn || !body || world.water)) {
       face.detect(source, nowMs);
       if (face.mouth) mouth = camToScreen(face.mouth.x, face.mouth.y);
-    } else if (body && usingCamera) {
+    } else if (body && usingCamera && !world.water) {
       body.detect(source, nowMs);
       if (body.mask) renderer.uploadMask(body.mask, body.maskW, body.maskH);
       readBody(nowMs);
     }
   }
-  const tracking = !!(body && usingCamera && body.found && body.mask);
+  const tracking = !!(body && usingCamera && !world.water && body.found && body.mask);
 
   // Blowing: bubbles stream out of your mouth (or the bottom of the screen), more and bigger the harder you blow.
   const blow = face && usingCamera ? face.update(dt) : 0;
   if (blow > 0) {
     blowCarry += dt * (world.water ? 10 + 45 * blow : 5 + 22 * blow);
-    const from = mouth || { x: W / 2, y: H * 0.88 };
+    const from = (world.water && sea.helmetValve()) || mouth || { x: W / 2, y: H * 0.88 };
     while (blowCarry >= 1) { blowCarry--; world.blowFrom(from.x, from.y, blow); }
   }
 
@@ -357,7 +377,7 @@ function frame(nowMs) {
     solid: tracking && !world.trap ? solid : null,
     moved,
     hands: tracking ? hands.filter(h => h.seen) : [],
-    mouth: blow > 0 ? mouth : null,
+    mouth: blow > 0 ? (world.water ? sea.helmetValve() : mouth) : null,
     breath: blow,
     tilt: Math.abs(tilt.x) + Math.abs(tilt.y) > 0.05 ? tilt : null,
   };
@@ -365,7 +385,8 @@ function frame(nowMs) {
     for (const h of env.hands) {
       if (Math.hypot(h.vx, h.vy) > unit() * 0.3) world.fluid.splat(h.x, h.y, h.vx, h.vy, unit() * 0.12, 0.5);
     }
-    if (blow > 0 && mouth) world.fluid.splat(mouth.x, mouth.y - unit() * 0.04, 0, -unit() * 0.9 * blow, unit() * 0.05, 0.4);
+    const valve = sea.helmetValve();
+    if (blow > 0 && valve) world.fluid.splat(valve.x, valve.y - unit() * 0.03, 0, -unit() * 0.9 * blow, unit() * 0.05, 0.4);
     world.fluid.step(dt * timeScale, world.bubbles);
     renderer.uploadFlow(world.fluid);
     const touches = [...gestures.values()].filter(g => g.mode !== 'none').map(g => ({ x: g.x, y: g.y }));
@@ -386,7 +407,7 @@ function frame(nowMs) {
 
 function begin() {
   startScreen.hidden = true;
-  hint.textContent = TIPS[0];
+  hint.textContent = TIPS[0]();
 }
 
 if (gl) {
@@ -399,6 +420,7 @@ if (gl) {
     statusLine.textContent = 'Opening camera…';
     if (!(await startCamera())) return;
     begin();
+    setWater(world.water);
     startTracking();
   });
   $('nocam').addEventListener('click', () => {
@@ -413,4 +435,4 @@ if (gl) {
 }
 
 // For poking at it from the console.
-window.bubbles = { world, get timeScale() { return timeScale; } };
+window.bubbles = { world, sea, get timeScale() { return timeScale; } };

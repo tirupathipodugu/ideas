@@ -128,6 +128,45 @@ export class Sound {
     this.tone(t, f, f * 1.9, 0.05 + 0.08 * size, 0.05 + 0.1 * size);
   }
 
+  /** Whale song: long sliding moans with a slow vibrato, echoing through the water. */
+  whale() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const echo = ctx.createDelay(1);
+    echo.delayTime.value = 0.42;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.45;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    echo.connect(feedback).connect(echo);
+    lp.connect(ctx.destination);
+    lp.connect(echo);
+    echo.connect(ctx.destination);
+    const calls = [[210, 420, 170, 2.6], [380, 300, 520, 1.8], [160, 240, 120, 3.2]];
+    let t = ctx.currentTime + 0.3;
+    for (const [a, b, c, len] of calls) {
+      const osc = ctx.createOscillator();
+      const vib = ctx.createOscillator();
+      const vibDepth = ctx.createGain();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(a, t);
+      osc.frequency.exponentialRampToValueAtTime(b, t + len * 0.45);
+      osc.frequency.exponentialRampToValueAtTime(c, t + len);
+      vib.frequency.value = 5.5;
+      vibDepth.gain.value = a * 0.025;
+      vib.connect(vibDepth).connect(osc.frequency);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.16, t + len * 0.3);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      osc.connect(g).connect(lp);
+      osc.start(t); vib.start(t);
+      osc.stop(t + len + 0.05); vib.stop(t + len + 0.05);
+      t += len + 0.5;
+    }
+  }
+
   /** Frost spreading: sparse dry ticks. Call every frame while freezing; it paces itself. */
   crackle() {
     const ctx = this.ready();

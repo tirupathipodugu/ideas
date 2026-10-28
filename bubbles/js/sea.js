@@ -7,8 +7,11 @@
 //   when you blow bubbles.
 // - A few reef fish, a glowing jellyfish that pulses its way up, and now and then a manta ray gliding
 //   past in the deep.
+// - The big moment: every minute or so a humpback whale glides past right up against the glass,
+//   singing. Its wake swirls the water (and every bubble in it) and the fish scatter out of its way.
 
 const SCHOOL = 34;
+const HELMET = { hx: 0.27, hy: -0.1, hr: 0.25 };   // helmet centre and radius, in diver sizes
 const rand = (a, b) => a + Math.random() * (b - a);
 const TAU = Math.PI * 2;
 
@@ -30,6 +33,9 @@ export class Sea {
     this.jelly = null;
     this.manta = null;
     this.nextManta = 12;
+    this.whale = null;
+    this.nextWhale = 16;
+    this.onWhale = null;        // called as a whale arrives (for its song)
     this.diver = null;
     this.schoolGoal = { x: 0, y: 0 };
   }
@@ -89,12 +95,21 @@ export class Sea {
     this.diverBreath(world, 10);
   }
 
-  diverSize() { return this.u * 0.34 * (1 + this.diver.closeAmt * 1.3); }
+  diverSize() { return this.u * 0.42 * (1 + this.diver.closeAmt * 1.3); }
+
+  /** Where the diver's helmet valve is on screen: the bubbles you blow come out here. */
+  helmetValve() {
+    const d = this.diver;
+    if (!d) return null;
+    const S = this.diverSize();
+    const lx = HELMET.hx * S * d.dir, ly = (HELMET.hy - HELMET.hr * 1.2) * S;
+    const c = Math.cos(d.rot || 0), s = Math.sin(d.rot || 0);
+    return { x: d.x + lx * c - ly * s, y: d.y + lx * s + ly * c };
+  }
 
   diverBreath(world, n) {
     const d = this.diver;
-    const s = this.diverSize();
-    const mx = d.x + d.dir * s * 0.36, my = d.y - s * 0.08;
+    const { x: mx, y: my } = this.helmetValve();
     for (let i = 0; i < n; i++) {
       const b = world.add(mx + rand(-3, 3), my + rand(-3, 3), rand(-0.05, 0.05) * this.u, -this.u * rand(0.1, 0.25),
         this.u * 0.004, this.u * rand(0.008, 0.022), { age: 0.5 });
@@ -112,9 +127,32 @@ export class Sea {
     const t = this.time;
     const threats = [...env.touches, ...env.hands];
 
+    // Whale: arrives now and then, glides across close to the glass, pushes the water aside.
+    this.nextWhale -= dt;
+    if (!this.whale && this.nextWhale <= 0) {
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const L = Math.max(W * 1.25, u * 1.5);
+      this.whale = { dir, L, x: dir > 0 ? -L * 0.6 : W + L * 0.6, y: H * rand(0.38, 0.6), phase: 0 };
+      if (this.onWhale) this.onWhale();
+    }
+    const wh = this.whale;
+    if (wh) {
+      const speed = Math.max(W, u) * 0.11;
+      wh.x += wh.dir * speed * dt;
+      wh.phase += dt * 0.9;
+      wh.y += Math.sin(wh.phase * 0.5) * u * 0.02 * dt;
+      const nose = wh.x + wh.dir * wh.L * 0.45;
+      env.fluid.splat(nose, wh.y, wh.dir * speed * 1.4, 0, wh.L * 0.12, 0.25);       // bow wave
+      const tail = wh.x - wh.dir * wh.L * 0.45;
+      env.fluid.splat(tail, wh.y, 0, Math.cos(wh.phase * 2) * u * 1.2, wh.L * 0.1, 0.3);   // fluke strokes
+      for (let k = -1; k <= 1; k++) threats.push({ x: wh.x + k * wh.L * 0.3, y: wh.y });
+      if (wh.x < -wh.L * 0.7 || wh.x > W + wh.L * 0.7) { this.whale = null; this.nextWhale = rand(60, 90); }
+    }
+
     // School: boids.
     const g = this.schoolGoal;
-    if (env.blowing && env.mouth) { g.x = env.mouth.x; g.y = env.mouth.y + u * 0.08; }
+    const valve = this.helmetValve();
+    if (env.blowing && valve) { g.x = valve.x; g.y = valve.y + u * 0.1; }
     else { g.x = W * (0.5 + 0.32 * Math.sin(t * 0.07)); g.y = H * (0.5 + 0.25 * Math.sin(t * 0.11 + 1)); }
     const fish = this.school;
     const near = u * 0.05, view = u * 0.16;
@@ -258,6 +296,7 @@ export class Sea {
     this.drawJelly(ctx, this.jelly);
     for (const f of this.school) this.drawSilver(ctx, f);
     for (const r of this.reef) this.drawReef(ctx, r);
+    if (this.whale) this.drawWhale(ctx, this.whale);
     this.drawDiver(ctx, this.diver, face);
   }
 
@@ -282,6 +321,89 @@ export class Sea {
     ctx.moveTo(-s * 0.28, 0);
     ctx.quadraticCurveTo(-s * 0.45, Math.sin(m.phase * 1.3) * s * 0.03, -s * 0.6, 0);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A humpback, side on: knobbly head, long white flippers, ventral grooves, beating flukes. */
+  drawWhale(ctx, w) {
+    const L = w.L;
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.scale(w.dir, 1);
+    ctx.rotate(Math.sin(w.phase * 0.5) * 0.04);
+
+    // Flukes (beating up and down) and the tail stock.
+    const beat = Math.cos(w.phase * 2);
+    ctx.fillStyle = '#1d2a36';
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.4, -L * 0.025);
+    ctx.quadraticCurveTo(-L * 0.47, beat * L * 0.04, -L * 0.53, beat * L * 0.04 - L * 0.13);
+    ctx.quadraticCurveTo(-L * 0.56, beat * L * 0.04, -L * 0.53, beat * L * 0.04 + L * 0.13 * (0.4 + 0.6 * Math.abs(beat)));
+    ctx.quadraticCurveTo(-L * 0.47, beat * L * 0.04, -L * 0.4, L * 0.025);
+    ctx.fill();
+
+    // Far flipper (behind the body).
+    const flap = Math.sin(w.phase * 0.8) * 0.15;
+    this.whaleFlipper(ctx, L, flap - 0.15, '#4a5a66');
+
+    // Body.
+    const body = ctx.createLinearGradient(0, -L * 0.14, 0, L * 0.14);
+    body.addColorStop(0, '#16222c');
+    body.addColorStop(0.55, '#2c3c48');
+    body.addColorStop(0.75, '#8a98a2');
+    body.addColorStop(1, '#c8d2d8');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(L * 0.5, L * 0.01);
+    ctx.bezierCurveTo(L * 0.46, -L * 0.1, L * 0.2, -L * 0.135, -L * 0.05, -L * 0.12);
+    ctx.bezierCurveTo(-L * 0.25, -L * 0.1, -L * 0.36, -L * 0.04, -L * 0.42, -L * 0.022);
+    ctx.lineTo(-L * 0.42, L * 0.022);
+    ctx.bezierCurveTo(-L * 0.3, L * 0.06, -L * 0.1, L * 0.14, L * 0.15, L * 0.13);
+    ctx.bezierCurveTo(L * 0.35, L * 0.12, L * 0.48, L * 0.08, L * 0.5, L * 0.01);
+    ctx.fill();
+
+    // Ventral grooves under the jaw, knobs and barnacle patches, a small dorsal fin.
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(40, 55, 65, 0.45)';
+    ctx.lineWidth = Math.max(1, L * 0.003);
+    for (let i = 0; i < 7; i++) {
+      const y = L * (0.06 + i * 0.012);
+      ctx.beginPath(); ctx.moveTo(L * 0.46, y - L * 0.02); ctx.quadraticCurveTo(L * 0.2, y + L * 0.01, -L * 0.02, y); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(180, 190, 195, 0.35)';
+    for (const [x, y, r] of [[0.36, -0.06, 0.012], [0.42, -0.03, 0.009], [0.3, -0.08, 0.01], [0.05, -0.1, 0.014], [-0.2, -0.06, 0.01]]) {
+      ctx.beginPath(); ctx.arc(L * x, L * y, L * r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = '#16222c';
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.17, -L * 0.1);
+    ctx.quadraticCurveTo(-L * 0.2, -L * 0.15, -L * 0.25, -L * 0.155);
+    ctx.lineTo(-L * 0.24, -L * 0.085);
+    ctx.fill();
+
+    // Eye, with a glint: it looks at you as it passes.
+    ctx.fillStyle = '#0a0e12';
+    ctx.beginPath(); ctx.ellipse(L * 0.3, L * 0.035, L * 0.012, L * 0.008, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath(); ctx.arc(L * 0.303, L * 0.032, L * 0.003, 0, TAU); ctx.fill();
+
+    // Near flipper: long and pale, slowly sweeping.
+    this.whaleFlipper(ctx, L, flap, '#b9c6ce');
+    ctx.restore();
+  }
+
+  whaleFlipper(ctx, L, angle, color) {
+    ctx.save();
+    ctx.translate(L * 0.2, L * 0.08);
+    ctx.rotate(0.55 + angle);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, -L * 0.025);
+    ctx.bezierCurveTo(-L * 0.1, -L * 0.03, -L * 0.25, -L * 0.012, -L * 0.33, 0);
+    ctx.bezierCurveTo(-L * 0.25, L * 0.02, -L * 0.1, L * 0.035, 0, L * 0.025);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -399,7 +521,8 @@ export class Sea {
     const kick = Math.sin(d.phase);
     ctx.save();
     ctx.translate(d.x, d.y);
-    ctx.rotate(Math.sin(this.time * 0.9) * 0.06 + (d.spin > 0 ? (1 - d.spin) * TAU : 0));   // a somersault when called
+    d.rot = Math.sin(this.time * 0.9) * 0.06 + (d.spin > 0 ? (1 - d.spin) * TAU : 0);   // a somersault when called
+    ctx.rotate(d.rot);
     ctx.scale(d.dir, 1);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -449,35 +572,46 @@ export class Sea {
     ctx.fillStyle = '#16243a';
     ctx.beginPath(); ctx.arc(ex, ey, S * 0.045, 0, TAU); ctx.fill();
 
-    // Head: hood, mask with your face behind the glass, regulator.
-    const hx = S * 0.25, hy = -S * 0.06, hr = S * 0.17;
-    ctx.fillStyle = '#16243a';
-    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, TAU); ctx.fill();
-    const mx = hx + hr * 0.25, my = hy - hr * 0.05, mrx = hr * 0.78, mry = hr * 0.72;
+    // Head: a round glass diving helmet on a brass collar, your face filling the glass, and the
+    // valve on top that the bubbles come out of.
+    const { hx, hy, hr } = HELMET;
+    const R = hr * S;
+    const cx = hx * S, cy = hy * S;
+    ctx.fillStyle = '#b8862b';
+    roundRect(ctx, cx - R * 0.75, cy + R * 0.72, R * 1.5, R * 0.38, R * 0.15);
+    ctx.fill();
+    ctx.fillStyle = '#e2b24a';
+    ctx.fillRect(cx - R * 0.7, cy + R * 0.76, R * 1.4, R * 0.07);
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(mx, my, mrx, mry, 0, 0, TAU);
+    ctx.arc(cx, cy, R * 0.9, 0, TAU);
     ctx.clip();
-    ctx.fillStyle = '#7fb8d0';
-    ctx.fillRect(mx - mrx, my - mry, mrx * 2, mry * 2);
-    if (face && face.element) drawFace(ctx, face, mx, my, mrx, mry, d.dir);
-    const tint = ctx.createLinearGradient(mx, my - mry, mx, my + mry);
-    tint.addColorStop(0, 'rgba(120, 200, 255, 0.25)');
-    tint.addColorStop(1, 'rgba(0, 60, 100, 0.25)');
+    ctx.fillStyle = '#6a9fb8';
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    if (face && face.element) drawFace(ctx, face, cx, cy, R * 0.9, R * 0.9, d.dir);
+    const tint = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.1, cx, cy, R);
+    tint.addColorStop(0, 'rgba(200, 240, 255, 0.18)');
+    tint.addColorStop(0.75, 'rgba(60, 140, 190, 0.08)');
+    tint.addColorStop(1, 'rgba(10, 50, 90, 0.45)');
     ctx.fillStyle = tint;
-    ctx.fillRect(mx - mrx, my - mry, mrx * 2, mry * 2);
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
     ctx.restore();
-    ctx.strokeStyle = '#0d0f12';
-    ctx.lineWidth = S * 0.035;
-    ctx.beginPath(); ctx.ellipse(mx, my, mrx, mry, 0, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-    ctx.lineWidth = S * 0.014;
-    ctx.beginPath(); ctx.ellipse(mx, my, mrx * 0.82, mry * 0.82, 0, -2.6, -1.7); ctx.stroke();
-    ctx.fillStyle = '#ffd400';
-    ctx.beginPath(); ctx.arc(mx + mrx * 0.35, my + mry * 1.05, S * 0.035, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#2a2f36';
-    ctx.lineWidth = S * 0.02;
-    ctx.beginPath(); ctx.moveTo(mx + mrx * 0.35, my + mry * 1.05); ctx.quadraticCurveTo(hx - hr * 0.6, hy + hr * 1.5, -S * 0.05, -S * 0.15); ctx.stroke();
+    ctx.strokeStyle = '#c99a3a';
+    ctx.lineWidth = R * 0.14;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.95, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#7a5a1c';
+    ctx.lineWidth = R * 0.04;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.02, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = R * 0.07;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.72, -2.55, -1.75); ctx.stroke();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath(); ctx.arc(cx + R * 0.45, cy + R * 0.42, R * 0.06, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#c99a3a';
+    roundRect(ctx, cx - R * 0.12, cy - R * 1.22, R * 0.24, R * 0.3, R * 0.06);
+    ctx.fill();
+    ctx.fillStyle = '#7a5a1c';
+    ctx.fillRect(cx - R * 0.18, cy - R * 1.24, R * 0.36, R * 0.07);
     ctx.restore();
   }
 }

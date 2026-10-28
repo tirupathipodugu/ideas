@@ -220,6 +220,7 @@ export class World {
       if (c) this.events.blub(r / (u * 0.07));
     }
     this.fluid.splat(b.x, b.y, 0, -u * 0.4, b.r);
+    this.glow(b.x, b.y, 18, 1.5);
   }
 
   /** Two touching air bubbles become one: radii add as volumes, momentum is kept, it wobbles. */
@@ -237,6 +238,20 @@ export class World {
     big.jelly = Math.max(big.jelly, 0.2);
     this.wobble(big, 0.18, Math.atan2(small.y - big.y, small.x - big.x));
     this.events.blub(big.r / (this.u * 0.07));
+  }
+
+  /** Glowing plankton stirred up at (x, y): sparks that drift with the water and fade. */
+  glow(x, y, n, spread = 1, vx = 0, vy = 0) {
+    const u = this.u;
+    for (let i = 0; i < n && this.particles.length < 1400; i++) {
+      const a = rand(0, Math.PI * 2), s = u * rand(0.02, 0.15) * spread;
+      this.particles.push({
+        kind: 2,
+        x: x + rand(-1, 1) * u * 0.02, y: y + rand(-1, 1) * u * 0.02,
+        vx: vx * 0.25 + Math.cos(a) * s, vy: vy * 0.25 + Math.sin(a) * s,
+        size: rand(7, 22), age: 0, life: rand(2, 4), rot: Math.random(), spin: 0,
+      });
+    }
   }
 
   /** A frozen bubble breaking into falling ice. */
@@ -513,6 +528,13 @@ export class World {
     for (const p of this.particles) {
       p.age += dt;
       const fall = this.water ? -0.35 : 1;      // under water the fizz and the ice float up
+      if (p.kind === 2) {                       // plankton rides the water
+        const f = this.fluid.sample(p.x, p.y);
+        p.vx *= 1 - dt * 1.5; p.vy *= 1 - dt * 1.5;
+        p.x += (p.vx + f.vx * 0.9) * dt;
+        p.y += (p.vy + f.vy * 0.9) * dt;
+        continue;
+      }
       if (p.kind === 0) {
         p.vx *= 1 - dt * (this.water ? 4 : 2.5);
         p.vy = p.vy * (1 - dt * (this.water ? 4 : 2.5)) + u * 1.6 * fall * dt;

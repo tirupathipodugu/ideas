@@ -18,7 +18,8 @@ void main() {
 }`;
 
 // The live camera as the background. While "Bubble me" carries you away, your cut-out moves and
-// a soft shadow stays where you stood. Under water (uWater) the whole view ripples as if seen through
+// a soft shadow stays where you stood. Under water (uWater) the camera is replaced by open sea (a sandy
+// floor with rocks and swaying kelp; your face only appears in the diver's helmet), the whole view ripples as if seen through
 // moving water, colours shift blue-green and darken with depth (water soaks up red first), caustics
 // dance over everything, sun rays slant down from a shimmering surface, and specks drift past.
 const COMPOSE_FS = `#version 300 es
@@ -44,6 +45,40 @@ float h21(vec2 p) {
   p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
+// Open water: brighter towards the surface, a rippled sandy floor with dark rocks, and two layers of
+// kelp swaying in the current (the far layer fainter).
+vec3 ocean(vec2 sp, vec2 uv, float t) {
+  float y = uv.y;
+  vec3 col = mix(vec3(0.62, 0.92, 1.0), vec3(0.32, 0.62, 0.82), smoothstep(0.0, 0.55, y));
+  col = mix(col, vec3(0.16, 0.36, 0.55), smoothstep(0.55, 1.0, y));
+  float floorY = 0.84 + 0.03 * sin(sp.x * 2.3) + 0.015 * sin(sp.x * 5.7 + 1.0);
+  for (int L = 0; L < 2; L++) {
+    float fl = float(L);
+    float spacing = 0.3 - fl * 0.07;
+    float x = sp.x + 0.37 * fl;
+    float id = floor(x / spacing);
+    float h = h21(vec2(id, fl + 3.0));
+    if (h < 0.3) continue;
+    float height = 0.3 + 0.4 * h;
+    float k = clamp((floorY - y) / height, 0.0, 1.0);
+    float sway = (sin(t * 0.6 + id * 1.7 + y * 3.0) * 0.05 + sin(t * 1.1 + id * 2.3 + y * 8.0) * 0.012) * k;
+    float baseX = (id + 0.3 + 0.4 * h) * spacing;
+    float dx = abs(x - baseX - sway);
+    float w = (0.011 + 0.006 * fl) * (1.0 - 0.6 * k);
+    float leaf = pow(abs(sin(y * 38.0 + id * 3.0)), 6.0) * 0.02 * (1.0 - k * 0.5);   // blades along the stalk
+    float kelp = smoothstep(w + leaf, (w + leaf) * 0.5, dx) * step(floorY - height, y) * step(y, floorY + 0.03);
+    vec3 kc = mix(vec3(0.18, 0.42, 0.26), vec3(0.12, 0.34, 0.16), fl) * (0.75 + 0.35 * (1.0 - y));
+    col = mix(col, kc, kelp * (0.45 + 0.4 * fl));
+  }
+  float sand = smoothstep(floorY, floorY + 0.008, y);
+  float ripple = 0.8 + 0.2 * sin(sp.x * 42.0 + sin(sp.x * 6.0 + y * 20.0) * 3.0 + y * 70.0);
+  col = mix(col, vec3(0.86, 0.8, 0.62) * ripple, sand);
+  float rockTop = floorY - 0.06 * max(0.0, sin(sp.x * 2.7 + 0.8)) * (0.6 + 0.4 * sin(sp.x * 9.1)) - 0.01;
+  float rock = smoothstep(rockTop, rockTop + 0.006, y) * step(y, floorY + 0.06);
+  col = mix(col, mix(vec3(0.22, 0.26, 0.3), vec3(0.4, 0.45, 0.48), smoothstep(rockTop + 0.03, rockTop, y)), rock);
+  return col;
+}
+
 // Light focused by the moving surface into bright wandering lines (a classic iterative caustic).
 float caustic(vec2 uv, float t) {
   vec2 p = mod(uv * 6.28318, 6.28318) - 250.0;
@@ -88,6 +123,7 @@ void main() {
       col = mix(bg, cam, a);
     }
   }
+  col = mix(col, ocean(px / unit, px / uStage, t), uWater);
   vec4 life = texture(uSea, px / uStage);
   col = mix(col, life.rgb, life.a * uWater);
   if (uWater > 0.0) {
@@ -290,6 +326,8 @@ void main() {
   vec2 m = p * (0.92 - 0.22 * (1.0 - z)) + swirl * 0.025;
   if (uMirror > 0.5) m.x = -m.x;
   vec3 cam = texture(uHist, vec3(0.5 + 0.5 * m, vLook.y)).rgb;
+  vec2 mirrorPx = c0 - (px - c0) * 1.6;                    // under water: the sea, upside down, not you
+  cam = mix(cam, texture(uScene, clamp(vec2(mirrorPx.x, uStage.y - mirrorPx.y) / uStage, 0.0, 1.0)).rgb, uWater);
   cam = pow(cam, vec3(0.9)) * 1.15;
   float camA = mix(0.18, 0.62, rim) * (drop > 0.5 ? 0.35 : 1.0);
   col = mix(col, cam * mix(vec3(1.0), 0.55 + 0.9 * iri, 0.35), camA);
@@ -338,7 +376,7 @@ void main() {
 
 const PART_VS = `#version 300 es
 layout(location = 0) in vec4 aPart;    // x, y, size, alpha
-layout(location = 1) in vec2 aKind;    // kind (0 drop, 1 ice), rotation
+layout(location = 1) in vec2 aKind;    // kind (0 drop, 1 ice, 2 glowing plankton), rotation
 uniform vec2 uStage;
 uniform float uScale;
 out float vAlpha;
@@ -358,7 +396,13 @@ in vec2 vKind;
 out vec4 outColor;
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  if (vKind.x < 0.5) {
+  if (vKind.x > 1.5) {
+    // Glowing plankton: a soft cyan halo round a white-hot core, added on top (alpha 0 = additive).
+    float r2 = dot(p, p);
+    if (r2 > 1.0) discard;
+    float halo = exp(-r2 * 4.0) * vAlpha, core = exp(-r2 * 40.0) * vAlpha;
+    outColor = vec4(vec3(0.35, 1.0, 0.95) * halo * 1.6 + vec3(1.0) * core * 1.5, 0.0);
+  } else if (vKind.x < 0.5) {
     float r = length(p);
     if (r > 1.0) discard;
     float body = smoothstep(1.0, 0.6, r) * 0.35 + smoothstep(0.35, 0.0, length(p - vec2(-0.3, -0.3))) * 0.9;
@@ -628,7 +672,7 @@ export class Renderer {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, k);
     }
 
-    // 4. Droplets and ice.
+    // 4. Droplets, ice and glowing plankton.
     const parts = world.particles;
     if (parts.length) {
       const pd = this.partData;
@@ -638,7 +682,8 @@ export class Renderer {
         const life = 1 - p.age / p.life;
         const o = n * 6;
         pd[o] = p.x; pd[o + 1] = p.y; pd[o + 2] = p.size;
-        pd[o + 3] = p.kind ? Math.min(1, life * 2) : life * life;
+        pd[o + 3] = p.kind === 2 ? Math.min(1, life * 1.5) * (0.55 + 0.45 * Math.sin(p.age * 9 + p.rot * 10))
+          : p.kind ? Math.min(1, life * 2) : life * life;
         pd[o + 4] = p.kind; pd[o + 5] = p.rot;
         n++;
       }
