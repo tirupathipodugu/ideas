@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Stretch Wall: Hole in the Wall for people stuck at a desk. Each wall's hole is a stretch; hold it or the wall breaks. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
+<title>Stretch Wall</title>
+<meta name="description" content="Walls keep coming with a stretch-shaped hole in them. Stretch at your desk to fit through, or the wall breaks.">
+<meta name="theme-color" content="#07090d">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%232dd4bf%22/%3E%3Ccircle cx=%2216%22 cy=%2210%22 r=%224%22 fill=%22%2307090d%22/%3E%3Cpath d=%22M6 5l7 11v11h6V16l7-11%22 fill=%22none%22 stroke=%22%2307090d%22 stroke-width=%223.4%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<canvas id="view" aria-label="A wall with a stretch-shaped hole rushing toward you"></canvas>
+<video id="cam" playsinline muted autoplay hidden></video>
+
+<header class="top" id="top" hidden>
+  <p class="title">Stretch Wall</p>
+  <p class="stats"><span id="hearts" aria-label="Walls you can still break">♥♥♥</span><span class="dot" aria-hidden="true">·</span><span id="score">0 walls</span></p>
+</header>
+
+<section class="cue" id="cue" hidden aria-live="polite">
+  <canvas id="mini" width="168" height="168" aria-hidden="true"></canvas>
+  <div>
+    <h1 id="cueName"></h1>
+    <p id="cueHow"></p>
+  </div>
+</section>
+
+<p class="count" id="count" hidden></p>
+<p class="hint" id="hint" aria-live="polite"></p>
+
+<nav class="controls" id="controls" aria-label="Controls" hidden>
+  <button type="button" id="sound" class="pill" aria-pressed="true"><span aria-hidden="true">🔊</span> Sound on</button>
+  <button type="button" id="pause" class="pill" aria-pressed="false"><span aria-hidden="true">⏸</span> Pause</button>
+  <button type="button" id="skip" class="pill"><span aria-hidden="true">⏭</span> Skip this stretch</button>
+  <button type="button" id="end" class="pill"><span aria-hidden="true">🏁</span> Finish</button>
+</nav>
+
+<div class="overlay" id="paused" hidden>
+  <div class="card">
+    <h2>Paused</h2>
+    <p>The wall will wait.</p>
+    <button type="button" id="resume" class="primary">Keep stretching</button>
+  </div>
+</div>
+
+<div class="overlay" id="over" hidden>
+  <div class="card">
+    <p class="kicker" id="overKicker">Stretch break done</p>
+    <h2 id="overTitle"></h2>
+    <p class="result" id="overResult"></p>
+    <p id="overAreas"></p>
+    <p class="best" id="overBest"></p>
+    <img id="overPhoto" alt="The moment a wall broke on you" hidden>
+    <button type="button" id="again" class="primary">Go again</button>
+    <button type="button" id="save" class="secondary" hidden><span aria-hidden="true">📸</span> Save wall-break photo</button>
+    <button type="button" id="post" class="secondary"><span aria-hidden="true">𝕏</span> Post on X</button>
+  </div>
+</div>
+
+<div class="overlay start" id="start">
+  <div class="card">
+    <p class="kicker">Stretch Wall</p>
+    <h2>Been sitting too long? Here come the walls.</h2>
+    <ul class="tries">
+      <li>Each wall has a hole shaped like a stretch</li>
+      <li>Get into the shape before it reaches you, then hold it</li>
+      <li>Lose the pose and the wall breaks. Three breaks and you're done</li>
+    </ul>
+    <p>Works sitting at your desk. Sit back a little so your head, shoulders and arms are in view.</p>
+    <p>Go gently, and skip or stop anything that hurts. This is a game, not medical advice.</p>
+    <p>Uses your camera. Everything stays on your device; nothing is uploaded or saved.</p>
+    <button type="button" id="go" class="primary">Start stretching</button>
+    <p class="status" id="status" role="status"></p>
+  </div>
+</div>
+</body>
+</html>
