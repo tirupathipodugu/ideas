@@ -1,0 +1,108 @@
+// Live mode brain: send the few lines being read (plus the page for context) to Claude and get back
+// one short note to float over the book. Static site, no build step and no server, so this calls
+// the Messages API over plain fetch with the reader's own key (stored only on their device).
+
+const KEY_STORE = 'rl.claudeKey';
+const MODEL = 'claude-opus-5-5';
+
+export const keyStore = {
+  get() { try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } },
+  set(k) { try { localStorage.setItem(KEY_STORE, k.trim()); } catch {} },
+  clear() { try { localStorage.removeItem(KEY_STORE); } catch {} },
+};
+
+const SYSTEM = `You are a reading companion. The reader is reading a printed book page right now; your note floats over the paper next to the lines they are on, so it must be glanceable in two seconds.
+Given the lines being read (and the full page for context), write ONE note that makes those lines easier or richer to read. Pick whichever kind fits best:
+- meaning: what a tricky phrase, old-fashioned wording or dense sentence actually says, in plain words
+- context: a fact about the period, place, person or idea that makes the lines click
+- insight: the point the author is making or why this moment matters
+- predict: a light hint of what to watch for next (never spoil beyond the page)
+- question: a short thought question to read on with
+- fun: a surprising related fact
+Rules: at most 22 words, plain casual English, no quotes of the passage, no "this passage" or "the author" openers, never repeat an earlier note. If a word on these lines is hard, put it in word/meaning (meaning at most 8 words); otherwise leave both empty.`;
+
+const SCHEMA = {
+  type: 'object',
+  properties: {
+    kind: { type: 'string', enum: ['meaning', 'context', 'insight', 'predict', 'question', 'fun'] },
+    note: { type: 'string' },
+    word: { type: 'string' },
+    meaning: { type: 'string' },
+  },
+  required: ['kind', 'note', 'word', 'meaning'],
+  additionalProperties: false,
+};
+
+export class AIError extends Error {
+  constructor(msg, code) { super(msg); this.code = code; }
+}
+
+let useFallbacks = true; // dropped automatically if the API rejects it
+
+/** Ask Claude about `lines` (string) given `page` (string) and recent notes. Returns {kind, note, word, meaning}. */
+export async function insightFor({ lines, page, recent, signal }) {
+  if (new URLSearchParams(location.search).has('mockai')) return mock(lines, signal);
+  const key = keyStore.get();
+  if (!key) throw new AIError('No API key', 'nokey');
+
+  const user = `PAGE (for context, OCR so expect small typos):\n${page.slice(0, 4000)}\n\n` +
+    (recent.length ? `NOTES ALREADY SHOWN (don't repeat):\n- ${recent.join('\n- ')}\n\n` : '') +
+    `LINES BEING READ NOW:\n${lines}`;
+
+  const send = async (withFallbacks) => {
+    const headers = {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2026-10-21',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    };
+    const body = {
+      model: MODEL,
+      max_tokens: 2000,
+      system: SYSTEM,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+      messages: [{ role: 'user', content: user }],
+    };
+    if (withFallbacks) { headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; body.fallbacks = 'default'; }
+    return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(body), signal });
+  };
+
+  let res = await send(useFallbacks);
+  if (res.status === 400 && useFallbacks) {
+    // Some setups reject the fallback option; one retry without it, and remember.
+    const txt = await res.clone().text();
+    if (/fallback|beta/i.test(txt)) { useFallbacks = false; res = await send(false); }
+  }
+  if (res.status === 401 || res.status === 403) throw new AIError('Key rejected', 'badkey');
+  if (res.status === 429) throw new AIError('Rate limited', 'rate');
+  if (res.status === 529 || res.status >= 500) throw new AIError('Claude is busy', 'busy');
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json())?.error?.message || msg; } catch {}
+    throw new AIError(msg, 'http');
+  }
+  const data = await res.json();
+  if (data.stop_reason === 'refusal') throw new AIError('Declined', 'refusal');
+  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  let out;
+  try { out = JSON.parse(text); } catch { throw new AIError('Bad reply', 'parse'); }
+  if (!out?.note) throw new AIError('Empty reply', 'parse');
+  return out;
+}
+
+// Offline stand-in for testing the live flow without a key: ?mockai
+const MOCK = [
+  { kind: 'meaning', note: 'Everyone assumes a rich single man must be hunting for a wife, and neighbours act like he already belongs to them.', word: 'universally', meaning: 'by everyone, everywhere' },
+  { kind: 'context', note: 'In Regency England, marrying well was often a family’s only route to money and security for daughters.', word: '', meaning: '' },
+  { kind: 'insight', note: 'Mrs. Bennet is all excitement, Mr. Bennet all silence. Their mismatch is the joke running through the book.', word: '', meaning: '' },
+  { kind: 'fun', note: 'A "chaise and four" is a light carriage pulled by four horses, the flashy sports car of 1810.', word: 'chaise', meaning: 'light horse-drawn carriage' },
+  { kind: 'question', note: 'Why does Mr. Bennet pretend not to care? Watch how he teases her.', word: '', meaning: '' },
+  { kind: 'predict', note: 'Keep an eye on Bingley. One new neighbour is about to set the whole family in motion.', word: '', meaning: '' },
+];
+let mockIx = 0;
+function mock(lines, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => resolve(MOCK[mockIx++ % MOCK.length]), 1200 + Math.random() * 900);
+    signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('aborted', 'AbortError')); });
+  });
+}

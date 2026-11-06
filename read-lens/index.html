@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- Read Lens: a reading coach that draws on your real book page through the camera. Pacer, Focus and Skim, all on-device. -->
+<!-- Read Lens: a reading coach that draws on your real book page through the camera. Live notes from Claude on the lines you're reading, plus Pacer, Focus and Skim. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob: https://api.anthropic.com; worker-src 'self' blob:">
 <title>Read Lens</title>
-<meta name="description" content="Point your phone at a real book. A glowing pacer sweeps the printed lines, Focus dims all but your line, Skim lights the key lines.">
+<meta name="description" content="Point your phone at a real book. Claude explains the lines you're on as you read, a glowing pacer sweeps the printed lines, Focus dims all but your line, Skim lights the key lines.">
 <meta name="theme-color" content="#0b0d10">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230b0d10%22/%3E%3Crect x=%227%22 y=%225%22 width=%2218%22 height=%2222%22 rx=%222%22 fill=%22%23f4efe4%22/%3E%3Crect x=%2210%22 y=%229%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3Crect x=%2210%22 y=%2214%22 width=%227%22 height=%223%22 rx=%221.5%22 fill=%22%23ffd84d%22/%3E%3Crect x=%2210%22 y=%2220%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3C/svg%3E">
@@ -16,6 +16,7 @@
 </head>
 <body>
 <video id="cam" playsinline muted autoplay aria-label="Live camera of your book"></video>
+<div class="flash" id="flash" hidden></div>
 <canvas id="marks" aria-label="Reading guide drawn over your page. Tap a line to jump the pacer there."></canvas>
 
 <header class="top">
@@ -24,10 +25,18 @@
 </header>
 
 <div class="modes" role="radiogroup" aria-label="Reading mode">
-  <button type="button" role="radio" aria-checked="true" data-mode="pacer">Pacer</button>
+  <button type="button" role="radio" aria-checked="true" data-mode="live">✦ Live</button>
+  <button type="button" role="radio" aria-checked="false" data-mode="pacer">Pacer</button>
   <button type="button" role="radio" aria-checked="false" data-mode="focus">Focus</button>
   <button type="button" role="radio" aria-checked="false" data-mode="skim">Skim</button>
 </div>
+
+<aside class="note at-bottom" id="note" hidden aria-live="polite">
+  <p class="note-kind" id="noteKind"></p>
+  <p class="note-body" id="noteBody"></p>
+  <p class="note-word" id="noteWord" hidden></p>
+  <button type="button" class="note-action" id="noteAction" hidden></button>
+</aside>
 
 <div class="toast" id="toast" hidden aria-live="polite">
   <p class="toast-kicker" id="toastKicker">Page done</p>
@@ -49,18 +58,34 @@
 
 <div class="menu" id="menu" hidden>
   <button type="button" class="menu-item" id="push" aria-pressed="true"><span aria-hidden="true">📈</span> Speed up 5% each page</button>
+  <button type="button" class="menu-item" id="keyBtn"><span aria-hidden="true">🔑</span> Claude API key</button>
   <button type="button" class="menu-item" id="flip"><span aria-hidden="true">🔄</span> Switch camera</button>
   <label class="menu-item"><span aria-hidden="true">🖼️</span> Use a photo of a page<input type="file" id="upload" accept="image/*" hidden></label>
   <button type="button" class="menu-item" id="demoBtn"><span aria-hidden="true">📖</span> Try a sample page</button>
   <p class="menu-stats" id="stats"></p>
 </div>
 
+<dialog class="dlg" id="keyDlg" aria-labelledby="keyTitle">
+  <form method="dialog" class="dlg-body">
+    <h2 id="keyTitle">Turn on Live notes</h2>
+    <p>Live sends the few lines you're reading to Claude and shows a short note about them on the page. Paste your Claude API key from console.anthropic.com.</p>
+    <input type="password" id="keyInput" autocomplete="off" spellcheck="false" placeholder="Your Claude API key" aria-label="Claude API key">
+    <p class="dlg-small">The key is saved only in this browser on this device, and the lines go straight from your phone to Anthropic. Each note costs roughly a cent on your account.</p>
+    <p class="dlg-small" id="keyStatus" aria-live="polite"></p>
+    <div class="dlg-actions">
+      <button class="secondary" id="keyRemove" hidden>Remove key</button>
+      <button class="secondary" id="keyCancel">Not now</button>
+      <button class="primary" id="keySave">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="overlay start" id="start">
   <div class="card">
     <p class="kicker">Read Lens</p>
     <h2>Read your paper book faster.</h2>
-    <p>Hold your phone over the page. A glowing pacer runs along the printed lines at your speed, Focus dims everything but your line, and Skim lights up the lines that matter.</p>
-    <p class="small">Everything runs on your phone. Nothing is uploaded.</p>
+    <p>Hold your phone over the page. Live explains the lines you're on as you read, a glowing pacer runs along the printed lines at your speed, Focus dims everything but your line, and Skim lights up the lines that matter.</p>
+    <p class="small">The page is read on your phone. Only Live sends the lines you're on to Claude.</p>
     <button type="button" class="primary" id="go">Start camera</button>
     <button type="button" class="link" id="demo">No book nearby? Try a sample page</button>
     <p class="status" id="startStatus" aria-live="polite"></p>
