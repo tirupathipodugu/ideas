@@ -43,7 +43,8 @@ let useFallbacks = true; // dropped automatically if the API rejects it
 export async function insightFor({ lines, page, recent, signal }) {
   if (new URLSearchParams(location.search).has('mockai')) return mock(lines, signal);
   const key = keyStore.get();
-  if (!key) throw new AIError('No API key', 'nokey');
+  // No key needed: without one, use the browser's own on-device AI if it has it, else free word help.
+  if (!key) return (await onDeviceNote(lines, page, recent)) || freeNote(lines, recent);
 
   const user = `PAGE (for context, OCR so expect small typos):\n${page.slice(0, 4000)}\n\n` +
     (recent.length ? `NOTES ALREADY SHOWN (don't repeat):\n- ${recent.join('\n- ')}\n\n` : '') +
@@ -105,4 +106,68 @@ function mock(lines, signal) {
     const t = setTimeout(() => resolve(MOCK[mockIx++ % MOCK.length]), 1200 + Math.random() * 900);
     signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('aborted', 'AbortError')); });
   });
+}
+
+// ---------- free, no-key notes ----------
+
+// Chrome's built-in on-device model (Prompt API), only when it's already on the device.
+let lmSession = null, lmChecked = false;
+async function onDeviceNote(lines, page, recent) {
+  try {
+    if (!lmChecked) {
+      lmChecked = true;
+      if (!('LanguageModel' in self) || (await self.LanguageModel.availability()) !== 'available') return null;
+      lmSession = await self.LanguageModel.create({ initialPrompts: [{ role: 'system', content: SYSTEM }] });
+    }
+    if (!lmSession) return null;
+    const s = await lmSession.clone();
+    const out = await s.prompt(
+      (recent.length ? `Notes already shown (don't repeat): ${recent.slice(-3).join(' | ')}\n\n` : '') +
+      `Page context: ${page.slice(0, 1500)}\n\nLines being read now:\n${lines}`,
+      { responseConstraint: SCHEMA },
+    );
+    s.destroy?.();
+    const d = JSON.parse(out);
+    return d?.note ? d : null;
+  } catch { return null; }
+}
+
+// Everywhere else: explain the hardest word on these lines with a free dictionary (no key, no account).
+const COMMON = new Set(`because between through however although something anything everything nothing
+without whatever whenever together yourself himself herself themselves important different another
+probably actually anyone someone everyone already business possible interest children thousand
+continued answered returned replied delighted immediately impatiently invitation objection
+possession neighbourhood neighborhood daughters servants`.split(/\s+/));
+const dictCache = new Map();
+async function define(word) {
+  if (dictCache.has(word)) return dictCache.get(word);
+  const tries = [word, word.replace(/ies$/, 'y'), word.replace(/(ed|es|s|ly|ing)$/, ''), word.replace(/(ed|ing)$/, 'e')];
+  let def = null;
+  for (const w of [...new Set(tries)].filter((x) => x.length > 3)) {
+    try {
+      const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
+      if (!r.ok) continue;
+      const j = await r.json();
+      const d = j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition;
+      if (d) { def = d.replace(/\.$/, ''); break; }
+    } catch {}
+  }
+  dictCache.set(word, def);
+  return def;
+}
+const shown = new Set();
+async function freeNote(lines, recent) {
+  // Hard-word guess: long, lowercase (not a name), not common, not explained already.
+  const words = [...new Set((lines.match(/\b[a-z][a-z'-]{6,}\b/g) || []).map((w) => w.replace(/['-]+$/, '')))]
+    .filter((w) => !COMMON.has(w) && !shown.has(w))
+    .sort((a, b) => b.length - a.length);
+  for (const w of words.slice(0, 3)) {
+    const def = await define(w);
+    if (def) {
+      shown.add(w);
+      const short = def.length > 110 ? def.slice(0, 105).replace(/\s+\S*$/, '') + '…' : def;
+      return { kind: 'meaning', note: short.charAt(0).toUpperCase() + short.slice(1) + '.', word: w, meaning: '', free: true };
+    }
+  }
+  return { kind: 'none', note: '', word: '', meaning: '', free: true };
 }

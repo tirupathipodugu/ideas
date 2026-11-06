@@ -330,7 +330,6 @@ function requestNote(ci) {
   const key = chunkKey(ci);
   if (!key || S.notes.has(key)) return;
   if (performance.now() < S.aiBackoffUntil) return;
-  if (!keyStore.get() && !new URLSearchParams(location.search).has('mockai')) return;
   const entry = { state: 'loading' };
   S.notes.set(key, entry);
   insightFor({ lines: ls.map(lineText).join('\n'), page: S.page.text, recent: S.recent.slice(-6) })
@@ -347,25 +346,23 @@ let shownKey = '';
 function renderNote() {
   const card = $('note');
   if (S.mode !== 'live' || !S.page || !S.tracked) { card.hidden = true; shownKey = ''; return; }
-  const hasKey = keyStore.get() || new URLSearchParams(location.search).has('mockai');
+  const smart = keyStore.get() || new URLSearchParams(location.search).has('mockai');
   const ci = Math.floor(S.cur / CHUNK);
   const key = chunkKey(ci);
   const entry = S.notes.get(key);
+  // Free mode only speaks up when there's a hard word; otherwise it stays out of the way.
+  const quiet = !entry || entry.state === 'loading' ? !smart : entry.state === 'ready' && entry.data.kind === 'none';
+  if (quiet) { card.hidden = true; shownKey = ''; return; }
   card.hidden = false;
   let sig;
-  if (!hasKey) sig = 'nokey';
-  else if (!entry || entry.state === 'loading') sig = `load:${key}`;
+  if (!entry || entry.state === 'loading') sig = `load:${key}`;
   else if (entry.state === 'error') sig = `err:${key}:${entry.err?.code}`;
   else sig = `ok:${key}`;
   if (sig === shownKey) return;
   shownKey = sig;
   const kind = $('noteKind'), body = $('noteBody'), word = $('noteWord'), act = $('noteAction');
   word.hidden = true; act.hidden = true; card.classList.remove('loading');
-  if (sig === 'nokey') {
-    kind.textContent = '🔑 Live notes';
-    body.textContent = 'Add your Claude API key and I’ll explain the lines you’re on as you read.';
-    act.textContent = 'Add key'; act.hidden = false;
-  } else if (sig.startsWith('load')) {
+  if (sig.startsWith('load')) {
     kind.textContent = '✦ Reading along';
     body.textContent = 'Thinking about these lines…';
     card.classList.add('loading');
@@ -376,10 +373,12 @@ function renderNote() {
     if (code === 'badkey') { act.textContent = 'Change key'; act.hidden = false; }
   } else {
     const d = entry.data;
-    const [emo, label] = KIND[d.kind] || ['💡', 'Note'];
+    const [emo, label] = d.free ? ['📖', 'Word help'] : KIND[d.kind] || ['💡', 'Note'];
     kind.textContent = `${emo} ${label}`;
-    body.textContent = d.note;
-    if (d.word && d.meaning) { word.hidden = false; word.innerHTML = ''; const b = document.createElement('b'); b.textContent = d.word; word.append(b, ` ${d.meaning}`); }
+    body.textContent = '';
+    if (d.free) { const b = document.createElement('b'); b.className = 'note-term'; b.textContent = `${d.word}: `; body.append(b); }
+    body.append(d.note);
+    if (!d.free && d.word && d.meaning) { word.hidden = false; word.innerHTML = ''; const b = document.createElement('b'); b.textContent = d.word; word.append(b, ` ${d.meaning}`); }
     card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop');
     sound.note();
   }
@@ -654,7 +653,6 @@ function setMode(m) {
   store.set('rl.mode', m);
   document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === m)));
   if (m === 'skim') setPlaying(false);
-  if (m === 'live' && !keyStore.get() && !new URLSearchParams(location.search).has('mockai') && S.page) openKey();
   sound.tick();
   shownKey = '';
   idleState();
@@ -725,7 +723,6 @@ $('go').addEventListener('click', async () => {
   try {
     await startCamera();
     $('start').hidden = true;
-    if (S.mode === 'live' && !keyStore.get()) openKey();
   } catch (err) {
     $('startStatus').textContent = 'Camera blocked or missing. Try the sample page instead.';
   }
