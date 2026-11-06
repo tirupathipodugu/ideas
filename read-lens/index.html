@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- Read Lens: a reading coach that draws on your real book page through the camera. Pacer, Focus and Skim, all on-device. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:">
+<title>Read Lens</title>
+<meta name="description" content="Point your phone at a real book. A glowing pacer sweeps the printed lines, Focus dims all but your line, Skim lights the key lines.">
+<meta name="theme-color" content="#0b0d10">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230b0d10%22/%3E%3Crect x=%227%22 y=%225%22 width=%2218%22 height=%2222%22 rx=%222%22 fill=%22%23f4efe4%22/%3E%3Crect x=%2210%22 y=%229%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3Crect x=%2210%22 y=%2214%22 width=%227%22 height=%223%22 rx=%221.5%22 fill=%22%23ffd84d%22/%3E%3Crect x=%2210%22 y=%2220%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script src="vendor/tesseract.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<video id="cam" playsinline muted autoplay aria-label="Live camera of your book"></video>
+<canvas id="marks" aria-label="Reading guide drawn over your page. Tap a line to jump the pacer there."></canvas>
+
+<header class="top">
+  <p class="title">Read Lens</p>
+  <p class="state" id="state" aria-live="polite">Starting…</p>
+</header>
+
+<div class="modes" role="radiogroup" aria-label="Reading mode">
+  <button type="button" role="radio" aria-checked="true" data-mode="pacer">Pacer</button>
+  <button type="button" role="radio" aria-checked="false" data-mode="focus">Focus</button>
+  <button type="button" role="radio" aria-checked="false" data-mode="skim">Skim</button>
+</div>
+
+<div class="toast" id="toast" hidden aria-live="polite">
+  <p class="toast-kicker" id="toastKicker">Page done</p>
+  <p class="toast-big" id="toastBig"></p>
+  <p class="toast-small" id="toastSmall"></p>
+</div>
+
+<nav class="controls" aria-label="Controls">
+  <button type="button" id="sound" class="pill" aria-pressed="true" aria-label="Sound on"><span aria-hidden="true">🔊</span></button>
+  <span class="speed" role="group" aria-label="Pacer speed">
+    <button type="button" id="slower" class="pill step" aria-label="Slower">−</button>
+    <span class="wpm" id="wpm" aria-live="polite"><b id="wpmNum">250</b><small>wpm</small></span>
+    <button type="button" id="faster" class="pill step" aria-label="Faster">+</button>
+  </span>
+  <button type="button" id="play" class="play" aria-label="Start pacer"><span id="playIcon" aria-hidden="true">▶</span></button>
+  <button type="button" id="rescan" class="pill" aria-label="Read the page again"><span aria-hidden="true">↻</span> Page</button>
+  <button type="button" id="more" class="pill" aria-label="More options" aria-expanded="false"><span aria-hidden="true">⋯</span></button>
+</nav>
+
+<div class="menu" id="menu" hidden>
+  <button type="button" class="menu-item" id="push" aria-pressed="true"><span aria-hidden="true">📈</span> Speed up 5% each page</button>
+  <button type="button" class="menu-item" id="flip"><span aria-hidden="true">🔄</span> Switch camera</button>
+  <label class="menu-item"><span aria-hidden="true">🖼️</span> Use a photo of a page<input type="file" id="upload" accept="image/*" hidden></label>
+  <button type="button" class="menu-item" id="demoBtn"><span aria-hidden="true">📖</span> Try a sample page</button>
+  <p class="menu-stats" id="stats"></p>
+</div>
+
+<div class="overlay start" id="start">
+  <div class="card">
+    <p class="kicker">Read Lens</p>
+    <h2>Read your paper book faster.</h2>
+    <p>Hold your phone over the page. A glowing pacer runs along the printed lines at your speed, Focus dims everything but your line, and Skim lights up the lines that matter.</p>
+    <p class="small">Everything runs on your phone. Nothing is uploaded.</p>
+    <button type="button" class="primary" id="go">Start camera</button>
+    <button type="button" class="link" id="demo">No book nearby? Try a sample page</button>
+    <p class="status" id="startStatus" aria-live="polite"></p>
+  </div>
+</div>
+</body>
+</html>
