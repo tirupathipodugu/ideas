@@ -33,6 +33,9 @@ export function buildText(lines) {
       words.push({ start, end: text.length, bbox: w.bbox, line: li });
       if (!joinNext) text += ' ';
     });
+    // A short line with no closing punctuation is a heading ("Chapter 1"): end it so it doesn't
+    // glue onto the first sentence of the page.
+    if (ws.length <= 3 && !/[.!?:;,"'”’)-]\s*$/.test(text)) text = text.replace(/\s*$/, '. ');
   });
   return { text: text.replace(/\s+$/, ''), words };
 }
@@ -51,10 +54,14 @@ function splitSentences(text) {
   }
   // Merge fragments created by abbreviations ("e.g.", "Dr.", "3.5") into the previous sentence.
   const merged = [];
+  const ABBR = /\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|vs|etc|e\.g|i\.e|No|Vol|Ch|Fig)\.["'”’)]*$/;
   for (const s of out) {
     const body = text.slice(s.start, s.end);
     const prev = merged[merged.length - 1];
-    if (prev && (body.split(/\s+/).length < 3 || /^[a-z0-9]/.test(body))) prev.end = s.end;
+    const prevBody = prev ? text.slice(prev.start, prev.end) : '';
+    if (prev && ABBR.test(prevBody)) prev.end = s.end;                  // "Mr." + "Bennet said…"
+    else if (ABBR.test(body) && body.split(/\s+/).length < 3) merged.push({ ...s }); // "Mrs." opens a sentence
+    else if (prev && (body.split(/\s+/).length < 3 || /^[a-z0-9]/.test(body))) prev.end = s.end;
     else merged.push({ ...s });
   }
   return merged;

@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- Read Lens: a reading coach that draws on your real book page through the camera. Live notes from Claude on the lines you're reading, plus Pacer, Focus and Skim. -->
+<!-- Read Lens: snap a book page. Key lines get highlighted on the photo; swipe up for the highlights, swipe left for word meanings. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob: https://api.anthropic.com https://api.dictionaryapi.dev; worker-src 'self' blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob: https://api.dictionaryapi.dev; worker-src 'self' blob:">
 <title>Read Lens</title>
-<meta name="description" content="Point your phone at a real book. Claude explains the lines you're on as you read, a glowing pacer sweeps the printed lines, Focus dims all but your line, Skim lights the key lines.">
+<meta name="description" content="Snap a book page. The key lines light up on the photo. Swipe up for the highlights, swipe left for word meanings.">
 <meta name="theme-color" content="#0b0d10">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230b0d10%22/%3E%3Crect x=%227%22 y=%225%22 width=%2218%22 height=%2222%22 rx=%222%22 fill=%22%23f4efe4%22/%3E%3Crect x=%2210%22 y=%229%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3Crect x=%2210%22 y=%2214%22 width=%227%22 height=%223%22 rx=%221.5%22 fill=%22%23ffd84d%22/%3E%3Crect x=%2210%22 y=%2220%22 width=%2212%22 height=%222%22 rx=%221%22 fill=%22%23999%22/%3E%3C/svg%3E">
@@ -15,77 +15,45 @@
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<video id="cam" playsinline muted autoplay aria-label="Live camera of your book"></video>
+<video id="cam" playsinline muted autoplay aria-label="Live camera"></video>
 <div class="flash" id="flash" hidden></div>
-<canvas id="marks" aria-label="Reading guide drawn over your page. Tap a line to jump the pacer there."></canvas>
 
-<header class="top">
-  <p class="title">Read Lens</p>
-  <p class="state" id="state" aria-live="polite">Starting…</p>
-</header>
+<header class="top"><p class="title">Read Lens</p></header>
+<p class="aim">Fit the page in the screen, then tap Snap</p>
 
-<div class="modes" role="radiogroup" aria-label="Reading mode">
-  <button type="button" role="radio" aria-checked="true" data-mode="live">✦ Live</button>
-  <button type="button" role="radio" aria-checked="false" data-mode="pacer">Pacer</button>
-  <button type="button" role="radio" aria-checked="false" data-mode="focus">Focus</button>
-  <button type="button" role="radio" aria-checked="false" data-mode="skim">Skim</button>
+<div class="shoot-bar">
+  <label class="side-btn"><span aria-hidden="true">🖼️</span><span>Photo</span><input type="file" id="upload" accept="image/*" hidden></label>
+  <button type="button" class="shoot" id="shoot" aria-label="Snap the page"><span>Snap</span></button>
+  <span class="side-btn" aria-hidden="true"></span>
 </div>
 
-<aside class="note at-bottom" id="note" hidden aria-live="polite">
-  <p class="note-kind" id="noteKind"></p>
-  <p class="note-body" id="noteBody"></p>
-  <p class="note-word" id="noteWord" hidden></p>
-  <button type="button" class="note-action" id="noteAction" hidden></button>
-</aside>
+<section class="snap" id="snapView" hidden>
+  <canvas id="snapCanvas" aria-label="Your page with the key lines highlighted"></canvas>
+  <div class="snap-top">
+    <button type="button" class="round" id="snapClose" aria-label="Back to camera">✕</button>
+    <p class="snap-state" id="snapState" aria-live="polite"></p>
+  </div>
+  <div id="snapHints" hidden>
+    <button type="button" class="hint hint-up" id="hintUp">↑ Swipe up for highlights</button>
+    <button type="button" class="hint hint-left" id="hintLeft">← Swipe for meanings</button>
+  </div>
 
-<div class="toast" id="toast" hidden aria-live="polite">
-  <p class="toast-kicker" id="toastKicker">Page done</p>
-  <p class="toast-big" id="toastBig"></p>
-  <p class="toast-small" id="toastSmall"></p>
-</div>
-
-<nav class="controls" aria-label="Controls">
-  <button type="button" id="sound" class="pill" aria-pressed="true" aria-label="Sound on"><span aria-hidden="true">🔊</span></button>
-  <span class="speed" role="group" aria-label="Pacer speed">
-    <button type="button" id="slower" class="pill step" aria-label="Slower">−</button>
-    <span class="wpm" id="wpm" aria-live="polite"><b id="wpmNum">250</b><small>wpm</small></span>
-    <button type="button" id="faster" class="pill step" aria-label="Faster">+</button>
-  </span>
-  <button type="button" id="play" class="play" aria-label="Start pacer"><span id="playIcon" aria-hidden="true">▶</span></button>
-  <button type="button" id="rescan" class="pill" aria-label="Read the page again"><span aria-hidden="true">↻</span> Page</button>
-  <button type="button" id="more" class="pill" aria-label="More options" aria-expanded="false"><span aria-hidden="true">⋯</span></button>
-</nav>
-
-<div class="menu" id="menu" hidden>
-  <button type="button" class="menu-item" id="push" aria-pressed="true"><span aria-hidden="true">📈</span> Speed up 5% each page</button>
-  <button type="button" class="menu-item" id="keyBtn"><span aria-hidden="true">✦</span> Smarter notes (optional)</button>
-  <button type="button" class="menu-item" id="flip"><span aria-hidden="true">🔄</span> Switch camera</button>
-  <label class="menu-item"><span aria-hidden="true">🖼️</span> Use a photo of a page<input type="file" id="upload" accept="image/*" hidden></label>
-  <button type="button" class="menu-item" id="demoBtn"><span aria-hidden="true">📖</span> Try a sample page</button>
-  <p class="menu-stats" id="stats"></p>
-</div>
-
-<dialog class="dlg" id="keyDlg" aria-labelledby="keyTitle">
-  <form method="dialog" class="dlg-body">
-    <h2 id="keyTitle">Smarter notes (optional)</h2>
-    <p>Live already works free: it explains hard words on the lines you're reading. If you have a Claude API key you can paste it here and notes will also explain meaning, context and why the lines matter. Totally optional.</p>
-    <input type="password" id="keyInput" autocomplete="off" spellcheck="false" placeholder="Your Claude API key" aria-label="Claude API key">
-    <p class="dlg-small">The key is saved only in this browser on this device, and the lines go straight from your phone to Anthropic. Each note costs roughly a cent on your account.</p>
-    <p class="dlg-small" id="keyStatus" aria-live="polite"></p>
-    <div class="dlg-actions">
-      <button class="secondary" id="keyRemove" hidden>Remove key</button>
-      <button class="secondary" id="keyCancel">Not now</button>
-      <button class="primary" id="keySave">Save</button>
-    </div>
-  </form>
-</dialog>
+  <div class="sheet" id="hlSheet" aria-labelledby="hlTitle">
+    <div class="panel-head"><h2 id="hlTitle">Highlights</h2><button type="button" class="round" id="hlClose" aria-label="Close highlights">↓</button></div>
+    <ol class="list" id="hlList"></ol>
+  </div>
+  <div class="side" id="wordSheet" aria-labelledby="wordTitle">
+    <div class="panel-head"><h2 id="wordTitle">Word meanings</h2><button type="button" class="round" id="wordClose" aria-label="Close word meanings">→</button></div>
+    <ul class="list words" id="wordList"></ul>
+  </div>
+</section>
 
 <div class="overlay start" id="start">
   <div class="card">
     <p class="kicker">Read Lens</p>
-    <h2>Read your paper book faster.</h2>
-    <p>Hold your phone over the page. Live explains the lines you're on as you read, a glowing pacer runs along the printed lines at your speed, Focus dims everything but your line, and Skim lights up the lines that matter.</p>
-    <p class="small">Free, no sign-up. The page is read on your phone.</p>
+    <h2>Snap a page. Get the gist.</h2>
+    <p>Key lines light up on your photo. Swipe up to read just the highlights, swipe left for the meaning of every hard word.</p>
+    <p class="small">Free. The page is read on your phone.</p>
     <button type="button" class="primary" id="go">Start camera</button>
     <button type="button" class="link" id="demo">No book nearby? Try a sample page</button>
     <p class="status" id="startStatus" aria-live="polite"></p>
