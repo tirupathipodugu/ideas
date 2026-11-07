@@ -26,13 +26,19 @@ export async function define(word) {
   const forms = [word, word.replace(/ies$/, 'y'), word.replace(/(ed|es|s|ly|ing)$/, ''), word.replace(/(ed|ing)$/, 'e'), word.replace(/ness$/, '')];
   let def = null;
   for (const w of [...new Set(forms)].filter((x) => x.length > 3)) {
-    try {
-      const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
-      if (!r.ok) continue;
-      const j = await r.json();
-      const d = j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition;
-      if (d) { def = d.replace(/\.$/, ''); break; }
-    } catch {}
+    // The free service sometimes answers 5xx/429 or drops the connection: retry those, not a 404.
+    for (let attempt = 0; attempt < 3 && !def; attempt++) {
+      try {
+        const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
+        if (r.status === 404) break;
+        if (!r.ok) { await new Promise((ok) => setTimeout(ok, 600 * (attempt + 1))); continue; }
+        const j = await r.json();
+        const d = j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition;
+        if (d) def = d.replace(/\.$/, '');
+        break;
+      } catch { await new Promise((ok) => setTimeout(ok, 600 * (attempt + 1))); }
+    }
+    if (def) break;
   }
   if (def && def.length > 140) def = def.slice(0, 132).replace(/\s+\S*$/, '') + '…';
   cache.set(word, def);
