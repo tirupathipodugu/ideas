@@ -22,6 +22,9 @@ export function buildText(lines) {
   lines.forEach((ln, li) => {
     const ws = (ln.words || []).filter((w) => w.confidence >= 45 && /[\p{L}\p{N}]/u.test(w.text));
     if (!ws.length) return;
+    // Running heads, section titles in capitals and page numbers aren't part of the reading.
+    const letters = ws.map((w) => w.text).join('').replace(/[^\p{L}]/gu, '');
+    if (!letters || (letters.length >= 3 && letters.replace(/[^\p{Lu}]/gu, '').length / letters.length > 0.8)) return;
     if (text && !/[\s]$/.test(text)) text += ' ';
     ws.forEach((w, wi) => {
       const lastInLine = wi === ws.length - 1;
@@ -85,7 +88,8 @@ export function summarize(text) {
     const toks = doc[i];
     const content = toks.filter((t) => freq.has(t));
     let score = content.reduce((a, t) => a + freq.get(t) / max, 0) / Math.pow(Math.max(toks.length, 6), 0.55);
-    if (i === 0) score *= 1.35;            // openings usually state the point
+    if (i === 0 && /^[a-z]/.test(text.slice(s.start, s.end))) score *= 0.35; // tail of a sentence from the previous page
+    else if (i === 0) score *= 1.35;       // openings usually state the point
     else if (i === 1) score *= 1.1;
     if (toks.length > 45) score *= 0.7;    // run-ons are often OCR merges
     if (/\d/.test(text.slice(s.start, s.end))) score *= 1.1; // numbers, dates, amounts matter

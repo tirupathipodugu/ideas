@@ -14,9 +14,14 @@ export function loadCommon() {
   return loading;
 }
 
-/** Lowercase (so not a name), at least 5 letters, not everyday vocabulary. */
+// Simple base forms, so "dislikes", "determined" or "comparisons" count as the everyday word they are.
+const bases = (t) => [t, t.replace(/ies$/, 'y'), t.replace(/s$/, ''), t.replace(/es$/, ''), t.replace(/(ed|ing)$/, ''), t.replace(/(ed|ing)$/, 'e'),
+  t.replace(/([^aeiou])\1(ed|ing)$/, '$1'), t.replace(/ly$/, ''), t.replace(/ily$/, 'y'), t.replace(/(able|ness|ment)$/, ''),
+  t.replace(/able$/, 'e'), t.replace(/ations?$/, 'e'), t.replace(/(er|ers)$/, ''), t.replace(/(er|ers)$/, 'e')];
+
+/** Lowercase (so not a name), at least 5 letters, not everyday vocabulary in any simple form. */
 export function isHardWord(t) {
-  return /^[a-z]{5,}$/.test(t) && !common.has(t);
+  return /^[a-z]{5,}$/.test(t) && !bases(t).some((b) => b.length >= 3 && common.has(b));
 }
 
 const cache = new Map();
@@ -33,7 +38,10 @@ export async function define(word) {
         if (r.status === 404) break;
         if (!r.ok) { await new Promise((ok) => setTimeout(ok, 600 * (attempt + 1))); continue; }
         const j = await r.json();
-        const d = j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition;
+        // First definition that explains the word instead of repeating it ("A heuristic method").
+        const all = (j?.[0]?.meanings || []).flatMap((m) => (m.definitions || []).map((x) => x.definition)).filter(Boolean);
+        const stem = word.slice(0, Math.max(4, word.length - 3));
+        const d = all.find((x) => !x.toLowerCase().includes(stem)) || all[0];
         if (d) def = d.replace(/\.$/, '');
         break;
       } catch { await new Promise((ok) => setTimeout(ok, 600 * (attempt + 1))); }
