@@ -181,7 +181,7 @@ $('go').addEventListener('click', () => {
   card({ ...INTRO, vo: 'intro', buttons: [['Begin the first story →', () => chapter(0)]] });
 });
 function chapter(i) {
-  ci = i; mode = 'story'; playing = false; completeAt = -1;
+  ci = i; mode = 'story'; playing = false; completeAt = -1; $('skip').hidden = false;
   const st = stations[i], ch = CH[i];
   st.active = true;
   [...prog.children].forEach((d, k) => { d.classList.toggle('on', k < i); d.classList.toggle('now', k === i); });
@@ -191,6 +191,17 @@ function chapter(i) {
   setTip('');
   card({ kicker: ch.kicker, title: ch.title, paras: ch.story, vo: `${ch.key}-story`, buttons: [['✨ Play', () => { hideCard(); voice.pause(); playing = true; mode = 'play'; setTip(st.tip); st.begin(); }]] });
 }
+// Skip: leave this story (its lamps light in the finale anyway) and go straight to the next one.
+$('skip').addEventListener('click', () => {
+  if (ci < 0 || mode === 'finale' || mode === 'end') return;
+  unlock(); voice.pause();
+  const st = stations[ci];
+  st.complete = true; st.active = false; st.hideLabels?.();
+  [...targets].forEach((t) => t.remove());
+  prog.children[ci].classList.add('on');
+  playing = false; hideCard();
+  if (ci === CH.length - 1) finale(); else chapter(ci + 1);
+});
 function storyDone() {
   playing = false; mode = 'fact'; setTip('');
   const ch = CH[ci], last = ci === CH.length - 1;
@@ -199,7 +210,7 @@ function storyDone() {
   card({ kicker: ch.kicker, title: 'Why it matters', paras: ch.fact, vo: `${ch.key}-fact`, buttons: [[last ? '🎆 Light up the whole valley' : 'Next story →', () => (last ? finale() : chapter(ci + 1))]] });
 }
 function finale() {
-  hideCard(); mode = 'finale'; voice.pause(); setTip('');
+  hideCard(); mode = 'finale'; voice.pause(); setTip(''); $('skip').hidden = true;
   $('where').textContent = 'Happy Diwali';
   flyTo(new V3(0, 46, 74), new V3(0, 4, -10), 7, 8);
   diyas.forEach((d) => { if (!d.on) setTimeout(() => d.light(), 1500 + Math.random() * 4500); });
