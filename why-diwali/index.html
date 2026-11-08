@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Why Diwali?: play through the stories behind Diwali (Rama, Krishna, Lakshmi, Bandi Chhor Divas, Mahavira, the five days), then a quiz. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
+<title>Why Diwali?</title>
+<meta name="description" content="Play through the stories behind Diwali: light Rama's way home, throw Krishna's chakra, welcome Lakshmi, free the 52 kings, pass Mahavira's flame. Then take the quiz.">
+<meta name="theme-color" content="#07060f">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2307060f%22/%3E%3Cpath d=%22M5 19h22c-1 5-5 8-11 8S6 24 5 19z%22 fill=%22%23d0662a%22/%3E%3Cpath d=%22M16 5c3 4 4 7 4 9a4 4 0 0 1-8 0c0-2 1-5 4-9z%22 fill=%22%23ffc23a%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<canvas id="c" aria-hidden="true"></canvas>
+
+<header class="top">
+  <p class="where" id="where">Why Diwali?</p>
+  <div class="right">
+    <span class="lamps" id="lamps" aria-label="Lamps lit">🪔 0</span>
+    <button type="button" id="sound" class="icon" aria-pressed="true" aria-label="Sound on">🔊</button>
+  </div>
+</header>
+<div class="dots" id="dots" aria-hidden="true"></div>
+<p class="tip" id="tip" aria-live="polite" hidden></p>
+
+<div class="days" id="days" hidden></div>
+<div class="quiz" id="quiz" hidden></div>
+
+<section class="card" id="card" aria-live="polite">
+  <div class="inner">
+    <p class="kicker" id="kicker"></p>
+    <h1 id="title"></h1>
+    <div id="body"></div>
+    <div class="actions" id="actions"></div>
+  </div>
+</section>
+</body>
+</html>
