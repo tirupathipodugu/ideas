@@ -342,6 +342,12 @@ export function mahavira(ctx) {
 export function days(ctx, labels) {
   const { g, W } = spot(ctx.scene, 'days');
   const ls = [];
+  // A fixed panel at the bottom (not floating labels): the day you're on, and a strip of all five.
+  const panel = document.createElement('div'); panel.className = 'dayspanel';
+  panel.innerHTML = '<div class="daynow"><b></b><span></span><small></small></div><div class="daystrip"></div>';
+  document.body.append(panel);
+  const now = panel.querySelector('.daynow'), strip = panel.querySelector('.daystrip');
+  let shown = -1;
   const paper = [C(1.4, 0.7, 0.2), C(1.4, 0.4, 0.6), C(0.6, 1.2, 0.4), C(0.55, 0.75, 1.4), C(1.4, 1.1, 0.25)];
   DAYS.forEach(([e, name, line], i) => {
     const x = -6 + i * 3, grp = new THREE.Group(); grp.position.set(x, 0, 0); g.add(grp);
@@ -351,7 +357,7 @@ export function days(ctx, labels) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.34, 0.95, 16, 1, true), mat); lan.add(body);
     const top = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16).rotateX(-Math.PI / 2), mat); top.position.y = 0.475; lan.add(top);
     const gl = glowSprite(paper[i], 3.4); gl.material.opacity = 0; lan.add(gl);
-    const el = document.createElement('div'); el.className = 'lbl'; el.innerHTML = `<b>Day ${i + 1}</b><span>${e} ${name}</span><small>${line}</small>`; labels.append(el);
+    const el = document.createElement('div'); el.className = 'chip'; el.innerHTML = `<i>${e}</i><b>Day ${i + 1}</b>`; strip.append(el);
     ls.push({ grp, lan, mat, gl, col: paper[i], el, up: false, vy: 0, a: 0, upT: 0, i });
   });
   let next = 0;
@@ -364,7 +370,7 @@ export function days(ctx, labels) {
     }, 1.3);
   }
   const this_ = {
-    key: 'days', cam: [W(0, 3.4, 10), W(0, 2.6, -4)], focus: () => [W(-6.5, 1.4, 0), W(6.5, 1.4, 0), W(-6.5, 3.4, 0), W(6.5, 3.4, 0)], tip: 'Release a lantern for each day, in order',
+    key: 'days', cam: [W(0, 3.4, 10), W(0, 1.2, -4)], fitBottom: -0.25, focus: () => [W(-6.5, 1.4, 0), W(6.5, 1.4, 0), W(-6.5, 3.4, 0), W(6.5, 3.4, 0)], tip: 'Release a lantern for each day, in order',
     complete: false, celebrate: 0.5, labels: ls,
     begin() { arm(); },
     update(dt, T, project) {
@@ -373,13 +379,13 @@ export function days(ctx, labels) {
         l.a += (glowA - l.a) * Math.min(1, dt * 4);
         l.mat.color.copy(l.col).multiplyScalar(0.25 + 0.75 * l.a); l.gl.material.opacity = 0.4 * l.a;
         if (l.up) { l.upT += dt; l.vy = Math.min(1.6, l.vy + dt * 0.8); l.lan.position.y += l.vy * dt; l.lan.position.x += Math.sin(T * 0.7 + i) * dt * 0.3; l.lan.rotation.y += dt * 0.4; }
-        const p = project(l.lan.getWorldPosition(new V3()));
-        l.el.style.transform = `translate(${p.x}px, ${p.y + 36}px) translate(-50%, 0)`;
-        const show = this_.active && p.on && (!l.up ? i <= next : l.upT < 4);
-        l.el.classList.toggle('show', show); l.el.classList.toggle('next', i === next && !l.up); l.el.classList.toggle('done', l.up);
+        l.el.classList.toggle('next', i === next && !l.up); l.el.classList.toggle('done', l.up);
       });
+      panel.classList.toggle('show', !!this_.active && !this_.complete && ctx.isPlaying());
+      const k = Math.min(next, ls.length - 1);
+      if (k !== shown) { shown = k; const [e, name, line] = DAYS[k]; now.querySelector('b').textContent = `Day ${k + 1} of 5`; now.querySelector('span').textContent = `${e} ${name}`; now.querySelector('small').textContent = line; now.animate?.([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], 350); }
     },
-    hideLabels() { ls.forEach((l) => l.el.classList.remove('show')); },
+    hideLabels() { this_.active = false; panel.classList.remove('show'); },
   };
   return this_;
 }

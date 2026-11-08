@@ -137,14 +137,14 @@ const sstep = (u) => u * u * (3 - 2 * u);
 // Pull the camera back along its view line until every point to tap fits on this screen (portrait phones are narrow),
 // keeping clear of the top bar and the tip.
 const probe = new THREE.PerspectiveCamera();
-function fit(pos, look, pts) {
+function fit(pos, look, pts, bottom = -0.9) {
   if (!pts.length) return [pos, look];
   probe.fov = camera.fov; probe.aspect = camera.aspect; probe.near = camera.near; probe.far = camera.far; probe.updateProjectionMatrix();
   const back = pos.clone().sub(look);
   let p = pos.clone();
   for (let k = 0; k < 60; k++) {
     probe.position.copy(p); probe.lookAt(look); probe.updateMatrixWorld();
-    const ok = pts.every((q) => { const v = q.clone().project(probe); return v.z < 1 && Math.abs(v.x) < 0.86 && v.y < 0.62 && v.y > -0.9; });
+    const ok = pts.every((q) => { const v = q.clone().project(probe); return v.z < 1 && Math.abs(v.x) < 0.86 && v.y < 0.62 && v.y > bottom; });
     if (ok) break;
     p = look.clone().add(back.multiplyScalar(1.06));
   }
@@ -158,7 +158,7 @@ function setTip(t) { const el = $('tip'); el.querySelector('span').textContent =
 
 // ---------- stories ----------
 const ctx = { scene, camera, P, target, light, chime, bell, boom, whoosh, win, firework, flyTo, say, temple: world.temple,
-  noise: (d, f, f2, v) => noise(d, f, f2, v, 'bandpass'), addLamp, setTip };
+  noise: (d, f, f2, v) => noise(d, f, f2, v, 'bandpass'), addLamp, setTip, isPlaying: () => playing };
 const stations = [ST.rama(ctx), ST.krishna(ctx), ST.lakshmi(ctx), ST.bandi(ctx), ST.mahavira(ctx), ST.days(ctx, $('fx'))];
 
 const prog = $('prog');
@@ -186,7 +186,7 @@ function chapter(i) {
   st.active = true;
   [...prog.children].forEach((d, k) => { d.classList.toggle('on', k < i); d.classList.toggle('now', k === i); });
   $('where').textContent = ch.title;
-  const [cp, cl] = fit(st.cam[0], st.cam[1], st.focus?.() || []);
+  const [cp, cl] = fit(st.cam[0], st.cam[1], st.focus?.() || [], st.fitBottom);
   flyTo(cp, cl, 3.5, 6);
   setTip('');
   card({ kicker: ch.kicker, title: ch.title, paras: ch.story, vo: `${ch.key}-story`, buttons: [['✨ Play', () => { hideCard(); voice.pause(); playing = true; mode = 'play'; setTip(st.tip); st.begin(); }]] });
