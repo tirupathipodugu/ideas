@@ -175,7 +175,10 @@ function card({ kicker, title, paras, vo, buttons }) {
   $('card').classList.add('show');
   narrate(vo);
 }
-const hideCard = () => $('card').classList.remove('show');
+const hideCard = () => { $('card').classList.remove('show'); $('closeCard').hidden = true; };
+// The end card can be closed to watch the valley; a small pill brings it back.
+$('closeCard').addEventListener('click', () => { $('card').classList.remove('show'); $('reopen').hidden = false; });
+$('reopen').addEventListener('click', () => { $('reopen').hidden = true; $('card').classList.add('show'); });
 
 $('go').addEventListener('click', () => {
   unlock();
@@ -224,13 +227,14 @@ function finale() {
     const total = diyas.length; $('lamps').textContent = total;
     card({ kicker: `${total} lamps lit · tap the sky for fireworks`, title: END.title, paras: END.paras, vo: 'end',
       buttons: [['Share on X', () => postOnX({ path: 'why-diwali/', text: 'I lit up a whole valley and found out why people celebrate Diwali 🪔' })], ['Play again', () => location.reload(), true]] });
+    $('closeCard').hidden = false;
   }, 7500);
 }
 
 // ---------- loop ----------
 let T = 0, last = performance.now(), winA = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;
+  const dt = Math.min(REC ? 0.2 : 0.05, (now - last) / 1000); last = now; T += dt;
   if (mode === 'title') { const a = T * 0.04 + 0.6; camPos.set(Math.sin(a) * 84, 34, Math.cos(a) * 84); camLook.set(0, 2, 0); }
   else if (fly.t < 1) {
     fly.t = Math.min(1, fly.t + dt / fly.dur); const u = sstep(fly.t);

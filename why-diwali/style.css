@@ -48,6 +48,10 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .card .inner { width: 100%; max-width: 540px; max-height: 62vh; overflow-y: auto; padding: 22px 20px 16px; border-radius: 26px; background: linear-gradient(160deg, rgba(40,24,58,.9), rgba(18,12,30,.94)); border: 1px solid rgba(255,197,77,.28); box-shadow: 0 -10px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); opacity: 0; transform: translateY(30px); visibility: hidden; transition: opacity .45s, transform .55s cubic-bezier(.2,.9,.2,1), visibility .55s; }
 .card.show .inner { opacity: 1; transform: none; pointer-events: auto; visibility: visible; }
 .card .inner::before { content: ""; display: block; width: 46px; height: 3px; margin: -8px auto 14px; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+.card .inner { position: relative; }
+.close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); font-size: 15px; color: var(--text); }
+.close[hidden], .reopen[hidden] { display: none; }
+.reopen { position: fixed; z-index: 7; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); height: 46px; padding: 0 18px; border-radius: 99px; background: rgba(24,16,40,.78); border: 1px solid rgba(255,197,77,.45); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-weight: 700; color: #ffe2a0; white-space: nowrap; box-shadow: 0 0 22px rgba(255,170,40,.25); }
 .kicker { margin: 0; color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .card h2 { margin: 4px 0 10px; font: 600 28px/1.15 var(--serif); }
 .body p { margin: 0 0 10px; font: 17px/1.55 var(--serif); color: rgba(255,246,230,.9); }
