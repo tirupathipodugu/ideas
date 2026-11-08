@@ -12,6 +12,9 @@ import { buildWorld } from './world.js';
 import * as ST from './stations.js';
 
 const $ = (id) => document.getElementById(id);
+// #rec: the page renders one frame per __wd.step() call (for recording the demo video) and logs sound events.
+const REC = location.hash === '#rec';
+const ev = (name) => { if (REC) (window.__ev ||= []).push([performance.now() / 1000, name]); };
 const V3 = THREE.Vector3;
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[(Math.random() * a.length) | 0];
@@ -44,6 +47,7 @@ let ac = null, soundOn = true, noiseBuf = null;
 function unlock() { if (!ac) { const A = window.AudioContext || window.webkitAudioContext; if (A) ac = new A(); } if (ac?.state === 'suspended') ac.resume(); }
 const live = () => soundOn && ac && ac.state === 'running';
 function bell(f = 660, vol = 0.18, dur = 1.6) {
+  ev(`bell:${f.toFixed(1)}:${vol}:${dur}`);
   if (!live()) return;
   const t = ac.currentTime;
   [[1, 1], [2.76, 0.35], [5.4, 0.15]].forEach(([m, v]) => {
@@ -60,8 +64,8 @@ function noise(dur, f = 1000, f2 = null, vol = 0.3, type = 'lowpass') {
   gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(vol, t + 0.01); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.connect(fl).connect(gn).connect(ac.destination); s.start(t, Math.random()); s.stop(t + dur + 0.05);
 }
-const whoosh = () => noise(0.45, 500, 3000, 0.2, 'bandpass');
-const boom = () => { noise(1.8, 900, 50, 0.45); noise(0.8, 3000, null, 0.05, 'highpass'); };
+const whoosh = () => { ev('whoosh'); noise(0.45, 500, 3000, 0.2, 'bandpass'); };
+const boom = () => { ev('boom'); noise(1.8, 900, 50, 0.45); noise(0.8, 3000, null, 0.05, 'highpass'); };
 const SCALE = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
 const chime = (i) => bell(SCALE[i % SCALE.length] * (1 + Math.floor(i / SCALE.length)) / 2, 0.16);
 const win = () => [0, 2, 4, 5].forEach((k, i) => setTimeout(() => bell(SCALE[k], 0.14, 2.2), i * 130));
@@ -78,7 +82,7 @@ const rockets = [];
 const flash = new THREE.PointLight('#ffffff', 0, 140, 1.2); scene.add(flash);
 function firework(at) {
   const from = at.clone(); from.y = Math.max(0, at.y - 22);
-  rockets.push({ p: from.clone(), from, to: at.clone(), t: 0, T: 1.1 + Math.random() * 0.4 });
+  rockets.push({ p: from.clone(), from, to: at.clone(), t: 0, T: 1.1 + Math.random() * 0.4 }); ev('launch');
   noise(1.2, 2000, 5000, 0.07, 'bandpass');
 }
 function updateRockets(dt) {
@@ -144,7 +148,7 @@ function fit(pos, look, pts, bottom = -0.9) {
   let p = pos.clone();
   for (let k = 0; k < 60; k++) {
     probe.position.copy(p); probe.lookAt(look); probe.updateMatrixWorld();
-    const ok = pts.every((q) => { const v = q.clone().project(probe); return v.z < 1 && Math.abs(v.x) < 0.86 && v.y < 0.62 && v.y > bottom; });
+    const ok = pts.every((q) => { const v = q.clone().project(probe); return v.z < 1 && Math.abs(v.x) < 0.8 && v.y < 0.62 && v.y > bottom; });
     if (ok) break;
     p = look.clone().add(back.multiplyScalar(1.06));
   }
@@ -258,10 +262,10 @@ function frame(now) {
     const p = project(f.at); f.el.style.transform = `translate(${p.x}px, ${p.y - 30 - age * 40}px) translate(-50%, -50%)`; f.el.style.opacity = String(Math.min(1, (1.6 - age) * 2));
   }
   composer.render();
-  requestAnimationFrame(frame);
+  if (!REC) requestAnimationFrame(frame);
 }
 function resize() {
-  const w = innerWidth, h = innerHeight, dpr = Math.min(1.75, devicePixelRatio || 1);
+  const w = innerWidth, h = innerHeight, dpr = REC ? devicePixelRatio : Math.min(1.75, devicePixelRatio || 1);
   renderer.setPixelRatio(dpr); renderer.setSize(w, h, false);
   composer.setPixelRatio(dpr); composer.setSize(w, h);
   bloom.resolution.set(w / 2, h / 2);
@@ -269,5 +273,5 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
-requestAnimationFrame(frame);
-if (location.hash === '#test') window.__wd = { stations, get mode() { return mode; }, chapter, finale, targets, project, camera, skip() { if (fly.to) { camPos.copy(fly.to.p); camLook.copy(fly.to.l); fly.t = 1; } } };
+if (!REC) requestAnimationFrame(frame);
+if (location.hash === '#test' || REC) window.__wd = { stations, get mode() { return mode; }, chapter, finale, targets, project, camera, step() { frame(performance.now()); }, skip() { if (fly.to) { camPos.copy(fly.to.p); camLook.copy(fly.to.l); fly.t = 1; } } };

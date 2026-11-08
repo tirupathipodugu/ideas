@@ -34,6 +34,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 @keyframes flick { 0%,100% { transform: scale(1) rotate(-3deg); } 50% { transform: scale(1.1,.92) rotate(3deg); } }
 .skip { white-space: nowrap; height: 40px; padding: 0 14px; border-radius: 99px; background: rgba(20,14,34,.55); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 14px; font-weight: 600; color: var(--muted); }
 .skip[hidden] { display: none; }
+@media (max-width: 380px) { .skip .t { display: none; } .skip { padding: 0 12px; } .lampbox { padding: 0 10px 0 8px; } .right { gap: 6px; } }
 .skip:active { transform: scale(.96); }
 .icon { width: 40px; height: 40px; border-radius: 50%; background: rgba(20,14,34,.55); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 17px; }
 

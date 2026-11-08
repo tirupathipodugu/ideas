@@ -216,22 +216,24 @@ export function lakshmi(ctx) {
 export function bandi(ctx) {
   const { g, W } = spot(ctx.scene, 'bandi');
   const stone = lambert('#5a4434');
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(30, 6.5, 2.4), stone); wall.position.set(0, 3.25, -8); g.add(wall);
-  for (let x = -14.5; x <= 14.5; x += 1.6) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 2.4), stone); c.position.set(x, 6.95, -8); g.add(c); }
-  [-15.5, 15.5].forEach((x) => { const t = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.5, 9, 12), stone); t.position.set(x, 4.5, -8); g.add(t); });
+  // Two levels of cells, three on each, so the whole fort fits a portrait phone up close.
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(18, 9.6, 2.4), stone); wall.position.set(0, 4.8, -8); g.add(wall);
+  for (let x = -8.6; x <= 8.6; x += 1.6) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 2.4), stone); c.position.set(x, 10.05, -8); g.add(c); }
+  [-9.6, 9.6].forEach((x) => { const t = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.1, 12, 12), stone); t.position.set(x, 6, -8); g.add(t); });
+  const ledge = new THREE.Mesh(new THREE.BoxGeometry(15, 0.35, 1.3), lambert('#6a5240')); ledge.position.set(0, 3.95, -6.2); g.add(ledge);
   const gates = [], kings = [], N = [8, 9, 9, 9, 9, 8];
   const barMat = new THREE.MeshStandardMaterial({ color: '#8a8a96', metalness: 0.8, roughness: 0.4 });
   N.forEach((n, i) => {
-    const x = -11 + i * 4.4;
-    const hole = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.8, 0.3), new THREE.MeshBasicMaterial({ color: '#07040a' })); hole.position.set(x, 1.95, -6.72); g.add(hole);
-    const bars = new THREE.Group(); bars.position.set(x, 1.95, -6.5);
+    const x = -4.6 + (i % 3) * 4.6, y = i < 3 ? 1.95 : 6.15;
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.8, 0.3), new THREE.MeshBasicMaterial({ color: '#07040a' })); hole.position.set(x, y, -6.72); g.add(hole);
+    const bars = new THREE.Group(); bars.position.set(x, y, -6.5);
     for (let b = 0; b < 7; b++) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.8, 0.12), barMat); r.position.x = -1.2 + b * 0.4; bars.add(r); }
     const cross = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.14, 0.14), barMat); cross.position.y = 0.6; bars.add(cross);
     g.add(bars);
-    const torch = glowSprite(C(1.4, 0.75, 0.2), 1.2); torch.position.set(x + 1.8, 3.6, -6.6); g.add(torch);
-    gates.push({ x, bars, open: 0, opened: false, n });
+    const torch = glowSprite(C(1.4, 0.75, 0.2), 1.4); torch.position.set(x + 1.8, y + 1.6, -6.6); g.add(torch);
+    gates.push({ x, y, bars, open: 0, opened: false, n });
   });
-  const cloak = new THREE.Group(); cloak.position.set(0, 0, 3); g.add(cloak);
+  const CZ = 7.5, cloak = new THREE.Group(); cloak.position.set(0, 0, CZ); g.add(cloak);
   const cm = new THREE.MeshStandardMaterial({ color: '#d9a03a', metalness: 0.4, roughness: 0.5, emissive: '#ff9a2a', emissiveIntensity: 0.3, side: THREE.DoubleSide });
   const cone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 3.4, 26, 1, true), cm); cone.position.y = 2.1; cloak.add(cone);
   const tas = [];
@@ -239,28 +241,28 @@ export function bandi(ctx) {
   const cg = glowSprite(C(1.6, 1.0, 0.4), 9); cg.position.y = 2; cloak.add(cg);
   const lineGeo = new THREE.BufferGeometry(), linePos = new Float32Array(52 * 6); lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
   const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: C(2, 1.6, 0.8), transparent: true, opacity: 0.7 })); g.add(lines); lineGeo.setDrawRange(0, 0);
-  const L = ctx.light(W(0, 4, -2)); L.intensity = 12;
+  const L = ctx.light(W(0, 5, -1)); L.intensity = 26;
   let freed = 0, arrived = 0, phase = 0, walkT = 0, tT = 0;
   const temple = ctx.temple;
   return {
-    key: 'bandi', cam: [W(0, 9, 21), W(0, 2.5, -3)], focus: () => [W(-11, 0.5, -6.5), W(11, 0.5, -6.5), W(-11, 4, -6.5), W(11, 4, -6.5), W(0, 0, 6)], tip: 'Tap the gates to free the 52 kings',
+    key: 'bandi', cam: [W(0, 9, 21), W(0, 2.5, -3)], focus: () => [W(-6.6, 0.2, -6.5), W(6.6, 0.2, -6.5), W(-6.6, 8.4, -6.5), W(6.6, 8.4, -6.5), W(0, 0, 9.5)], tip: 'Tap the gates to free the 52 kings',
     complete: false, celebrate: 2,
     begin() {
-      gates.forEach((gt) => { const t = ctx.target(() => W(gt.x, 2, -6.4), () => {
+      gates.forEach((gt) => { const t = ctx.target(() => W(gt.x, gt.y, -6.4), () => {
         t.remove(); gt.opened = true; ctx.chime(gates.filter((q) => q.opened).length * 2); ctx.addLamp(); ctx.noise(0.35, 2200, 500, 0.12);
-        for (let k = 0; k < gt.n; k++) { const j = kings.length, f = makeFigure(C(1.5, 1.35, 1.15), 'crown', 0.62); f.position.set(gt.x + (k % 3 - 1) * 0.5, 0, -6.6); g.add(f);
+        for (let k = 0; k < gt.n; k++) { const j = kings.length, f = makeFigure(C(1.5, 1.35, 1.15), 'crown', 0.62); f.position.set(gt.x + (k % 3 - 1) * 0.5, gt.y - 1.9, -6.0); g.add(f);
           const row = Math.floor(j / 13), col = j % 13, a = Math.PI * (0.18 + 0.64 * (col / 12)), r = 2.6 + row * 0.8;
-          kings.push({ f, from: f.position.clone(), to: new V3(Math.cos(a) * r, 0, 3 - Math.sin(a) * r), t: -k * 0.18, j }); }
-        freed += gt.n; ctx.say(`${freed} free`, W(gt.x, 4.8, -6));
+          kings.push({ f, from: f.position.clone(), to: new V3(Math.cos(a) * r, 0, CZ - Math.sin(a) * r), t: -k * 0.18, j }); }
+        freed += gt.n; ctx.say(`${freed} free`, W(gt.x, gt.y + 2.6, -6));
       }, 1.4); });
     },
     update(dt, T) {
-      gates.forEach((gt) => { if (gt.opened && gt.open < 1) { gt.open = Math.min(1, gt.open + dt * 1.8); gt.bars.position.y = 1.95 + gt.open * 3.9; } });
+      gates.forEach((gt) => { if (gt.opened && gt.open < 1) { gt.open = Math.min(1, gt.open + dt * 1.8); gt.bars.position.y = gt.y + gt.open * 3.9; } });
       let n = 0;
       kings.forEach((k) => {
         if (k.t < 1) { k.t += dt * 0.55; if (k.t < 0) return; }
         const u = ease(Math.min(1, Math.max(0, k.t)));
-        k.f.position.lerpVectors(k.from, k.to, u); k.f.position.y = Math.abs(Math.sin(T * 8 + k.j)) * 0.06 * (u < 1 ? 1 : 0);
+        k.f.position.lerpVectors(k.from, k.to, u); k.f.position.y = k.from.y * (1 - u) + Math.abs(Math.sin(T * 8 + k.j)) * 0.06 * (u < 1 ? 1 : 0);
         if (u < 1) k.f.lookAt(cloak.getWorldPosition(new V3()));
         if (k.t >= 1) {
           const tp = tas[k.j].getWorldPosition(new V3()), kp = k.f.getWorldPosition(new V3()).add(new V3(0, 0.55, 0));
@@ -360,14 +362,17 @@ export function days(ctx, labels) {
     const el = document.createElement('div'); el.className = 'chip'; el.innerHTML = `<i>${e}</i><b>Day ${i + 1}</b>`; strip.append(el);
     ls.push({ grp, lan, mat, gl, col: paper[i], el, up: false, vy: 0, a: 0, upT: 0, i });
   });
-  let next = 0;
+  let next = 0, ts = [];
+  // Every lantern still on the ground is tappable; a tap always releases the next day in order.
   function arm() {
+    ts.forEach((t) => t.remove()); ts = [];
     if (next >= ls.length) return;
-    const l = ls[next];
-    const t = ctx.target(() => l.lan.getWorldPosition(new V3()), () => {
-      t.remove(); l.up = true; l.upT = 0; ctx.chime(next * 2 + 2); ctx.addLamp(); ctx.whoosh(); next++; arm();
-      if (next === ls.length) setTimeout(() => { this_.complete = true; }, 3500);
-    }, 1.3);
+    ls.slice(next).forEach((l, k) => ts.push(ctx.target(() => l.lan.getWorldPosition(new V3()), release, k === 0 ? 1.3 : 0.9)));
+  }
+  function release() {
+    const l = ls[next]; if (!l) return;
+    l.up = true; l.upT = 0; ctx.chime(next * 2 + 2); ctx.addLamp(); ctx.whoosh(); next++; arm();
+    if (next === ls.length) setTimeout(() => { this_.complete = true; }, 3500);
   }
   const this_ = {
     key: 'days', cam: [W(0, 3.8, 9), W(0, 1.4, -3)], fitBottom: -0.25, focus: () => [W(-4, 1.4, -1.4), W(4, 1.4, -1.4), W(-4, 3.2, -1.4), W(4, 3.2, -1.4)], tip: 'Release a lantern for each day, in order',
