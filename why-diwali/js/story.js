@@ -26,7 +26,7 @@ export const CH = [
     tip: 'Drag the flame from lamp to lamp. Gently, or it goes out',
     fact: ['Jains celebrate Diwali as the night of <b>Mahavira’s nirvana</b>, and many start their new year the next day.', 'Moving gently fits the story: <b>ahimsa</b>, non-violence, is at the heart of what he taught.'] },
   { key: 'days', kicker: 'Story 6 · The festival', title: 'Five days, not one night',
-    story: ['Diwali is not just one night. It runs for <b>five days</b>, and each day has its own meaning.', 'Light the days in order.'],
+    story: ['Diwali is not just one night. It runs for <b>five days</b>, and each day has its own meaning.', 'Release a sky lantern for each day, in order.'],
     tip: 'Tap the five days in order, first to last',
     fact: ['From <b>Dhanteras</b> to <b>Bhai Dooj</b>: five days of lamps, sweets, family, and new beginnings.', 'Places add their own, too: <b>Kali Puja</b> in Bengal, <b>Bali Pratipada</b> in Karnataka and Maharashtra, and the <b>new year</b> in Gujarat.'] },
 ];

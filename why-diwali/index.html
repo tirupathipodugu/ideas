@@ -1,38 +1,48 @@
 <!doctype html>
-<!-- Why Diwali?: play through the stories behind Diwali (Rama, Krishna, Lakshmi, Bandi Chhor Divas, Mahavira, the five days), narrated, ending in fireworks. -->
+<!-- Why Diwali?: a dark 3D valley where each Diwali story happens at a different spot around a lake; tap what glows, everything you light stays lit, and the finale shows the whole valley glowing under fireworks. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gh7NRJ7MEWdYUGMcXx0SUMJY93gUi2UqlztG1amlvwA='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self' data: blob:">
 <title>Why Diwali?</title>
-<meta name="description" content="Play through the stories behind Diwali: light Rama's way home, throw Krishna's chakra, welcome Lakshmi, free the 52 kings and pass Mahavira's flame, then celebrate with fireworks.">
+<meta name="description" content="Light up a dark valley, one Diwali story at a time: Rama's homecoming, Krishna's chakra, Lakshmi's footsteps, the 52 kings, Mahavira's flame and the five days. Then watch the whole valley glow.">
 <meta name="theme-color" content="#07060f">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2307060f%22/%3E%3Cpath d=%22M5 19h22c-1 5-5 8-11 8S6 24 5 19z%22 fill=%22%23d0662a%22/%3E%3Cpath d=%22M16 5c3 4 4 7 4 9a4 4 0 0 1-8 0c0-2 1-5 4-9z%22 fill=%22%23ffc23a%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<canvas id="c" aria-hidden="true"></canvas>
+<canvas id="scene" aria-label="A valley at night. Tap the glowing rings to light lamps and play each story."></canvas>
+<div id="fx" aria-hidden="true"></div>
 
-<header class="top">
-  <p class="where" id="where">Why Diwali?</p>
+<header class="hud" id="hud">
+  <div class="where-wrap">
+    <p class="where" id="where">Why Diwali?</p>
+    <div class="prog" id="prog" aria-hidden="true"></div>
+  </div>
   <div class="right">
-    <span class="lamps" id="lamps" aria-label="Lamps lit">🪔 0</span>
+    <span class="lampbox" id="lampBox" aria-label="Lamps lit"><span class="mini-diya" aria-hidden="true"></span><b id="lamps">0</b></span>
     <button type="button" id="sound" class="icon" aria-pressed="true" aria-label="Sound on">🔊</button>
   </div>
 </header>
-<div class="dots" id="dots" aria-hidden="true"></div>
-<p class="tip" id="tip" aria-live="polite" hidden></p>
+<p class="tip" id="tip" aria-live="polite"><i aria-hidden="true">👆</i><span></span></p>
 
-<div class="days" id="days" hidden></div>
+<section class="title-screen" id="titleScreen">
+  <p class="eyebrow">A five-minute story game</p>
+  <h1>Why <em>Diwali?</em></h1>
+  <p class="sub">On the darkest night of the year, a valley waits for light. Six stories, one lamp at a time.</p>
+  <button type="button" id="go" class="btn big">🪔 Light the first lamp</button>
+  <p class="hint">Sound on · tap whatever glows</p>
+</section>
 
 <section class="card" id="card" aria-live="polite">
   <div class="inner">
     <p class="kicker" id="kicker"></p>
-    <h1 id="title"></h1>
-    <div id="body"></div>
+    <h2 id="title"></h2>
+    <div class="body" id="body"></div>
     <div class="actions" id="actions"></div>
   </div>
 </section>
