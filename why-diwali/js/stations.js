@@ -350,7 +350,7 @@ export function days(ctx, labels) {
   let shown = -1;
   const paper = [C(1.4, 0.7, 0.2), C(1.4, 0.4, 0.6), C(0.6, 1.2, 0.4), C(0.55, 0.75, 1.4), C(1.4, 1.1, 0.25)];
   DAYS.forEach(([e, name, line], i) => {
-    const x = -6 + i * 3, grp = new THREE.Group(); grp.position.set(x, 0, 0); g.add(grp);
+    const x = (i - 2) * 1.75, grp = new THREE.Group(); grp.position.set(x, 0, -Math.abs(i - 2) * 0.7); g.add(grp);
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3), lambert('#4a3a2a')); stand.position.y = 0.65; grp.add(stand);
     const lan = new THREE.Group(); lan.position.y = 1.85; grp.add(lan);
     const mat = new THREE.MeshBasicMaterial({ color: paper[i].clone().multiplyScalar(0.25) });
@@ -370,7 +370,7 @@ export function days(ctx, labels) {
     }, 1.3);
   }
   const this_ = {
-    key: 'days', cam: [W(0, 3.4, 10), W(0, 1.2, -4)], fitBottom: -0.25, focus: () => [W(-6.5, 1.4, 0), W(6.5, 1.4, 0), W(-6.5, 3.4, 0), W(6.5, 3.4, 0)], tip: 'Release a lantern for each day, in order',
+    key: 'days', cam: [W(0, 3.8, 9), W(0, 1.4, -3)], fitBottom: -0.25, focus: () => [W(-4, 1.4, -1.4), W(4, 1.4, -1.4), W(-4, 3.2, -1.4), W(4, 3.2, -1.4)], tip: 'Release a lantern for each day, in order',
     complete: false, celebrate: 0.5, labels: ls,
     begin() { arm(); },
     update(dt, T, project) {
