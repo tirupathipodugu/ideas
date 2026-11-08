@@ -32,7 +32,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .mini-diya::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 7px; border-radius: 0 0 9px 9px; background: #d0662a; }
 .mini-diya::after { content: ""; position: absolute; left: 6px; bottom: 6px; width: 6px; height: 10px; border-radius: 50% 50% 50% 50% / 65% 65% 35% 35%; background: radial-gradient(ellipse at 50% 75%, #fff7c2 0 30%, #ffb030 70%); box-shadow: 0 0 10px 3px rgba(255,170,40,.55); animation: flick 1.3s infinite ease-in-out; }
 @keyframes flick { 0%,100% { transform: scale(1) rotate(-3deg); } 50% { transform: scale(1.1,.92) rotate(3deg); } }
-.skip { height: 40px; padding: 0 14px; border-radius: 99px; background: rgba(20,14,34,.55); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 14px; font-weight: 600; color: var(--muted); }
+.skip { white-space: nowrap; height: 40px; padding: 0 14px; border-radius: 99px; background: rgba(20,14,34,.55); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 14px; font-weight: 600; color: var(--muted); }
 .skip[hidden] { display: none; }
 .skip:active { transform: scale(.96); }
 .icon { width: 40px; height: 40px; border-radius: 50%; background: rgba(20,14,34,.55); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 17px; }

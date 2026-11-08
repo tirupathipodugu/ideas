@@ -6,6 +6,14 @@ import { makeDiya, glowSprite } from './fx.js';
 export const SPOTS = { rama: [-46, 6], krishna: [-31, -36], lakshmi: [4, -47], bandi: [38, -30], mahavira: [47, 12], days: [0, 23] };
 export const WATER_Y = -0.45, LAKE_R = 15;
 
+// Keep the view clear: no trees or houses between each story and its camera (which sits on the lake side of it).
+function blocksView(x, z) {
+  return Object.values(SPOTS).some(([sx, sz]) => {
+    const r = Math.hypot(sx, sz), ox = sx / r, oz = sz / r, dx = x - sx, dz = z - sz;
+    const along = -(dx * ox + dz * oz), side = Math.abs(dx * oz - dz * ox);
+    return Math.hypot(dx, dz) < 20 || (along > -4 && along < 48 && side < 13 + along * 0.25);
+  });
+}
 const sm = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
 export function heightAt(x, z) {
   const r = Math.hypot(x, z);
@@ -60,7 +68,7 @@ export function buildWorld(scene) {
   let k = 0;
   for (let tries = 0; k < nT && tries < 6000; tries++) {
     const a = Math.random() * Math.PI * 2, r = 20 + Math.random() * 100, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (Object.values(SPOTS).some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 20)) continue;
+    if (blocksView(x, z)) continue;
     const s = 0.7 + Math.random() * 1.1;
     m.compose(new THREE.Vector3(x, heightAt(x, z) - 0.1, z), q, new THREE.Vector3(s, s * (0.8 + Math.random() * 0.6), s));
     tree.setMatrixAt(k, m); tree.setColorAt(k, col.setHSL(0.36 + Math.random() * 0.06, 0.4, 0.1 + Math.random() * 0.07)); k++;
@@ -74,7 +82,7 @@ export function buildWorld(scene) {
   const village = [];
   for (let i = 0, tries = 0; i < 44 && tries < 2000; tries++) {
     const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 40, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (Object.values(SPOTS).some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 19) || village.some((v) => v.distanceTo(new THREE.Vector3(x, 0, z)) < 6)) continue;
+    if (blocksView(x, z) || village.some((v) => v.distanceTo(new THREE.Vector3(x, 0, z)) < 6)) continue;
     const h = heightAt(x, z), g = new THREE.Group(); g.position.set(x, h, z); g.rotation.y = Math.atan2(-x, -z); g.scale.setScalar(1.6 + Math.random() * 0.8);
     const b = new THREE.Mesh(box, wallMat); b.scale.set(1.6, 1.2, 1.4); b.position.y = 0.6; g.add(b);
     const rf = new THREE.Mesh(roof, roofMat); rf.scale.set(1.45, 1, 1.25); rf.position.y = 1.55; g.add(rf);

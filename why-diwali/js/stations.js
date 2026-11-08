@@ -375,9 +375,9 @@ export function days(ctx, labels) {
     begin() { arm(); },
     update(dt, T, project) {
       ls.forEach((l, i) => {
-        const glowA = l.up ? 1 : i === next ? 0.55 + 0.25 * Math.sin(T * 4) : 0.15;
+        const glowA = l.up ? 1 : i === next ? 0.6 + 0.3 * Math.sin(T * 4) : 0.3;
         l.a += (glowA - l.a) * Math.min(1, dt * 4);
-        l.mat.color.copy(l.col).multiplyScalar(0.25 + 0.75 * l.a); l.gl.material.opacity = 0.4 * l.a;
+        l.mat.color.copy(l.col).multiplyScalar(0.5 + 0.5 * l.a); l.gl.material.opacity = 0.4 * l.a;
         if (l.up) { l.upT += dt; l.vy = Math.min(1.6, l.vy + dt * 0.8); l.lan.position.y += l.vy * dt; l.lan.position.x += Math.sin(T * 0.7 + i) * dt * 0.3; l.lan.rotation.y += dt * 0.4; }
         l.el.classList.toggle('next', i === next && !l.up); l.el.classList.toggle('done', l.up);
       });
