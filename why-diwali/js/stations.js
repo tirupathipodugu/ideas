@@ -51,14 +51,14 @@ export function rama(ctx) {
   let walk = 0, lit = 0, doneT = -1, crowd = [];
   for (let i = 0; i < 14; i++) { const f = makeFigure(C(1.2, 1.0, 0.9), '', 0.65); f.position.set(-6.5 + i, 1.2, 4.6 + (i % 2) * 0.5); f.visible = false; pal.add(f); crowd.push(f); }
   return {
-    key: 'rama', cam: [W(10, 7, 23), W(0, 1.5, 1)], tip: 'Tap the glowing lamps to light their way home',
+    key: 'rama', cam: [W(10, 7, 23), W(0, 1.5, 1)], focus: () => [...ds.map((d) => d.world()), W(0, 8, -15), W(-8, 1, -12), W(8, 1, -12)], tip: 'Tap the glowing lamps to light their way home',
     complete: false, celebrate: 5,
     begin() { ds.forEach((d) => { const t = ctx.target(d.world, () => { t.remove(); d.light(); lit++; ctx.chime(lit); ctx.addLamp(); ctx.P.sparkle(d.world(), C(2, 1.4, 0.6), 18); ctx.say(`${lit} / 12`, d.world()); }); }); },
     update(dt, T) {
       let k = 0; while (k < 12 && ds[k].on) k++;
       walk += ((k === 12 ? 1.02 : k / 12) - walk) * Math.min(1, dt * 1.1);
       party.forEach(({ f, off }) => { const u = THREE.MathUtils.clamp(walk + off, 0, 1.02), p = path(Math.min(1, u)), q = path(Math.min(1, u + 0.01)); f.position.set(p.x, Math.abs(Math.sin(T * 7 + off * 40)) * 0.08, p.z); f.rotation.y = Math.atan2(q.x - p.x, q.z - p.z); });
-      L1.position.copy(W(path(walk).x, 2.5, path(walk).z)); L1.intensity = 18 + lit * 4;
+      L1.position.copy(W(path(walk).x, 2.5, path(walk).z)); L1.intensity = 8 + lit * 1.5;
       if (lit === 12 && !this.complete) {
         this.complete = true; doneT = T; ctx.win();
         ctx.flyTo(W(7, 6, 5), W(0, 4, -15), 3.5, 1);
@@ -67,7 +67,7 @@ export function rama(ctx) {
       }
       if (doneT >= 0) {
         const a = THREE.MathUtils.clamp((T - doneT - 0.8) / 1.5, 0, 1);
-        winMat.color.setRGB(0.07 + 1.8 * a, 0.04 + 1.1 * a, 0.08 + 0.35 * a); halo.material.opacity = 0.35 * a; L2.intensity = 70 * a;
+        winMat.color.setRGB(0.07 + 1.0 * a, 0.04 + 0.62 * a, 0.08 + 0.2 * a); halo.material.opacity = 0.25 * a; L2.intensity = 25 * a;
         crowd.forEach((f, i) => { f.visible = a > 0.2; f.rotation.y = Math.PI; f.position.y = 1.2 + Math.abs(Math.sin(T * 6 + i)) * 0.15 * a; });
       }
     },
@@ -117,7 +117,7 @@ export function krishna(ctx) {
     disks.push({ c, sh, from, t: 0 }); ctx.whoosh();
   }
   return {
-    key: 'krishna', cam: [W(0, 10, 21), W(0, 4.5, -3)], tip: 'Tap the shadows to throw Krishna’s chakra',
+    key: 'krishna', cam: [W(0, 10, 21), W(0, 4.5, -3)], focus: () => [W(-11, 0, -3), W(11, 0, -3), W(0, 17, -4), W(-11, 15, -4), W(11, 15, -4), W(0, 0, 4)], tip: 'Tap the shadows to throw Krishna’s chakra',
     complete: false, celebrate: 3.5,
     begin() { active = true; nextSpawn = 0; },
     update(dt, T) {
@@ -145,8 +145,8 @@ export function krishna(ctx) {
           }
         }
       }
-      houses.forEach((h) => { h.a += ((h.on ? 1 : 0.05) - h.a) * Math.min(1, dt * 3); h.wm.color.setRGB(0.05 + 1.1 * h.a, 0.04 + 0.7 * h.a, 0.06 + 0.22 * h.a); });
-      L.intensity = 8 + 18 * (houses.filter((h) => h.on).length / houses.length);
+      houses.forEach((h) => { h.a += ((h.on ? 1 : 0.05) - h.a) * Math.min(1, dt * 3); h.wm.color.setRGB(0.05 + 0.85 * h.a, 0.04 + 0.52 * h.a, 0.06 + 0.16 * h.a); });
+      L.intensity = 4 + 10 * (houses.filter((h) => h.on).length / houses.length);
       if (cleared >= 10 && !this.complete) {
         this.complete = true; doneT = T; ctx.win(); active = false;
         shades.forEach((sh) => { if (!sh.dead) { sh.dead = true; sh.t.alive && sh.t.remove(); ctx.P.sparkle(sh.s.getWorldPosition(new V3()), C(2, 1.5, 0.6), 30, 4); } });
@@ -191,7 +191,7 @@ export function lakshmi(ctx) {
   const L = ctx.light(W(0, 3, -1));
   let phase = 0, stepT = 0, filled = 0;
   return {
-    key: 'lakshmi', cam: [W(0, 7.5, 14), W(0, 1.2, -1)], tip: 'Tap the rangoli to fill it with colour',
+    key: 'lakshmi', cam: [W(0, 7.5, 14), W(0, 1.2, -1)], focus: () => [W(-3.5, 0, 2.4), W(3.5, 0, 2.4), W(0, 0, 6), W(0, 3.5, -3.5), W(1.7, 0, -3.2)], tip: 'Tap the rangoli to fill it with colour',
     complete: false, celebrate: 2,
     begin() {
       parts.forEach((p, k) => { const t = ctx.target(() => W([0, -1, 1][k] * p.at * 0.7, 0.3, 2.4 + p.at * 0.7), () => {
@@ -201,10 +201,10 @@ export function lakshmi(ctx) {
     },
     update(dt, T) {
       parts.forEach((p) => { if (p.on && p.f < 1) { p.f = Math.min(1, p.f + dt * 2); p.mat.color.copy(new THREE.Color('#cfc5b5').lerp(p.col, p.f)); p.mat.opacity = 0.35 + 0.65 * p.f; } });
-      L.intensity = 25 + filled * 10;
+      L.intensity = 8 + filled * 3;
       if (phase === 2) {
         stepT += dt;
-        const a = THREE.MathUtils.clamp(stepT / 2.5, 0, 1); doorMat.color.setRGB(0.08 + 2 * a, 0.04 + 1.3 * a, 0.06 + 0.45 * a); sideWin.color.copy(doorMat.color);
+        const a = THREE.MathUtils.clamp(stepT / 2.5, 0, 1); doorMat.color.setRGB(0.08 + 1.1 * a, 0.04 + 0.7 * a, 0.06 + 0.24 * a); sideWin.color.copy(doorMat.color);
         feet.forEach((f, i) => { f.material.opacity = THREE.MathUtils.clamp((stepT - 0.6 - i * 0.4) / 0.4, 0, 1); });
         if (stepT > 0.8 + 9 * 0.4 && !this.complete) { this.complete = true; ctx.win(); ctx.P.sparkle(W(0, 2, -3.4), C(2, 1.5, 0.7), 80, 4, 2); }
       }
@@ -228,22 +228,22 @@ export function bandi(ctx) {
     for (let b = 0; b < 7; b++) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.8, 0.12), barMat); r.position.x = -1.2 + b * 0.4; bars.add(r); }
     const cross = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.14, 0.14), barMat); cross.position.y = 0.6; bars.add(cross);
     g.add(bars);
-    const torch = glowSprite(C(2, 1.1, 0.3), 1.6); torch.position.set(x + 1.8, 3.6, -6.6); g.add(torch);
+    const torch = glowSprite(C(1.4, 0.75, 0.2), 1.2); torch.position.set(x + 1.8, 3.6, -6.6); g.add(torch);
     gates.push({ x, bars, open: 0, opened: false, n });
   });
   const cloak = new THREE.Group(); cloak.position.set(0, 0, 3); g.add(cloak);
-  const cm = new THREE.MeshStandardMaterial({ color: '#d9a03a', metalness: 0.4, roughness: 0.5, emissive: '#ff9a2a', emissiveIntensity: 0.55, side: THREE.DoubleSide });
+  const cm = new THREE.MeshStandardMaterial({ color: '#d9a03a', metalness: 0.4, roughness: 0.5, emissive: '#ff9a2a', emissiveIntensity: 0.3, side: THREE.DoubleSide });
   const cone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 3.4, 26, 1, true), cm); cone.position.y = 2.1; cloak.add(cone);
   const tas = [];
   for (let i = 0; i < 52; i++) { const a = (i / 52) * Math.PI * 2, t = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 0.4, 5), new THREE.MeshBasicMaterial({ color: C(2, 1.5, 0.5) })); t.position.set(Math.cos(a) * 1.68, 0.2, Math.sin(a) * 1.68); cloak.add(t); tas.push(t); }
   const cg = glowSprite(C(1.6, 1.0, 0.4), 9); cg.position.y = 2; cloak.add(cg);
   const lineGeo = new THREE.BufferGeometry(), linePos = new Float32Array(52 * 6); lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
   const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: C(2, 1.6, 0.8), transparent: true, opacity: 0.7 })); g.add(lines); lineGeo.setDrawRange(0, 0);
-  const L = ctx.light(W(0, 4, -2)); L.intensity = 30;
+  const L = ctx.light(W(0, 4, -2)); L.intensity = 12;
   let freed = 0, arrived = 0, phase = 0, walkT = 0, tT = 0;
   const temple = ctx.temple;
   return {
-    key: 'bandi', cam: [W(0, 9, 21), W(0, 2.5, -3)], tip: 'Tap the gates to free the 52 kings',
+    key: 'bandi', cam: [W(0, 9, 21), W(0, 2.5, -3)], focus: () => [W(-11, 0.5, -6.5), W(11, 0.5, -6.5), W(-11, 4, -6.5), W(11, 4, -6.5), W(0, 0, 6)], tip: 'Tap the gates to free the 52 kings',
     complete: false, celebrate: 2,
     begin() {
       gates.forEach((gt) => { const t = ctx.target(() => W(gt.x, 2, -6.4), () => {
@@ -303,7 +303,7 @@ export function mahavira(ctx) {
   const halo = glowSprite(C(1.6, 1.3, 0.9), 20); halo.position.y = 3; halo.material.opacity = 0; tp.add(halo);
   const ls = [];
   for (let i = 0; i < 9; i++) { const z = 4 - i * 1.2, x = (i % 2 ? 1 : -1) * 1.3; ls.push(makeDiya(g, new V3(x, yAt(x, z) + 0.02, z), 1.15)); }
-  const L = ctx.light(W(0, 6, -2));
+  const L = ctx.light(W(0, 2.5, 5));
   const orbs = [];
   let n = 1, doneT = -1;
   function arm() {
@@ -318,7 +318,7 @@ export function mahavira(ctx) {
     }, 1.2);
   }
   return {
-    key: 'mahavira', cam: [W(0, 5.5, 15), W(0, 2.6, -3)], tip: 'Tap the next lamp to pass the flame up the hill',
+    key: 'mahavira', cam: [W(0, 5.5, 15), W(0, 2.6, -3)], focus: () => [...ls.map((d) => d.world()), W(0, Hh + 6.5, cz)], tip: 'Tap the next lamp to pass the flame up the hill',
     complete: false, celebrate: 3.5,
     begin() { ls[0].light(); arm(); },
     update(dt, T) {
@@ -328,10 +328,10 @@ export function mahavira(ctx) {
         ctx.P.spawn(o.o.position, new V3((Math.random() - 0.5) * 0.4, 0.4, (Math.random() - 0.5) * 0.4), C(2, 1.3, 0.5), 0.5, -0.5, 0.97, 0.6);
         if (o.t >= 1) { ctx.scene.remove(o.o); orbs.splice(i, 1); o.d.light(); ctx.chime(n); ctx.addLamp(); ctx.P.sparkle(o.d.world(), C(2, 1.4, 0.6), 16); n++; arm(); }
       }
-      L.intensity = 10 + ls.filter((d) => d.on).length * 5;
+      L.intensity = 4 + ls.filter((d) => d.on).length * 2.5;
       if (n >= ls.length && !this.complete && doneT < 0) { doneT = T; ctx.win(); ctx.flyTo(W(0, 9, 12), W(0, 5, -6), 3, 1); }
       if (doneT >= 0) {
-        const a = THREE.MathUtils.clamp((T - doneT) / 2, 0, 1); marble.emissiveIntensity = 0.02 + 0.5 * a; halo.material.opacity = 0.5 * a; L.intensity = 55 * a + 50;
+        const a = THREE.MathUtils.clamp((T - doneT) / 2, 0, 1); marble.emissiveIntensity = 0.02 + 0.35 * a; halo.material.opacity = 0.4 * a; L.intensity = 26 + 14 * a;
         if (T - doneT > 2.2 && !this.complete) { this.complete = true; ctx.P.sparkle(W(0, Hh + 4, cz), C(2.2, 2, 1.6), 120, 5, 2.5); }
       }
     },
@@ -342,7 +342,7 @@ export function mahavira(ctx) {
 export function days(ctx, labels) {
   const { g, W } = spot(ctx.scene, 'days');
   const ls = [];
-  const paper = [C(2.2, 1.1, 0.3), C(2.2, 0.6, 0.9), C(1.0, 1.9, 0.6), C(0.9, 1.2, 2.2), C(2.2, 1.7, 0.4)];
+  const paper = [C(1.4, 0.7, 0.2), C(1.4, 0.4, 0.6), C(0.6, 1.2, 0.4), C(0.55, 0.75, 1.4), C(1.4, 1.1, 0.25)];
   DAYS.forEach(([e, name, line], i) => {
     const x = -6 + i * 3, grp = new THREE.Group(); grp.position.set(x, 0, 0); g.add(grp);
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3), lambert('#4a3a2a')); stand.position.y = 0.65; grp.add(stand);
@@ -364,14 +364,14 @@ export function days(ctx, labels) {
     }, 1.3);
   }
   const this_ = {
-    key: 'days', cam: [W(0, 3.4, 10), W(0, 2.6, -4)], tip: 'Release a lantern for each day, in order',
+    key: 'days', cam: [W(0, 3.4, 10), W(0, 2.6, -4)], focus: () => [W(-6.5, 1.4, 0), W(6.5, 1.4, 0), W(-6.5, 3.4, 0), W(6.5, 3.4, 0)], tip: 'Release a lantern for each day, in order',
     complete: false, celebrate: 0.5, labels: ls,
     begin() { arm(); },
     update(dt, T, project) {
       ls.forEach((l, i) => {
         const glowA = l.up ? 1 : i === next ? 0.55 + 0.25 * Math.sin(T * 4) : 0.15;
         l.a += (glowA - l.a) * Math.min(1, dt * 4);
-        l.mat.color.copy(l.col).multiplyScalar(0.25 + 0.75 * l.a); l.gl.material.opacity = 0.55 * l.a;
+        l.mat.color.copy(l.col).multiplyScalar(0.25 + 0.75 * l.a); l.gl.material.opacity = 0.4 * l.a;
         if (l.up) { l.upT += dt; l.vy = Math.min(1.6, l.vy + dt * 0.8); l.lan.position.y += l.vy * dt; l.lan.position.x += Math.sin(T * 0.7 + i) * dt * 0.3; l.lan.rotation.y += dt * 0.4; }
         const p = project(l.lan.getWorldPosition(new V3()));
         l.el.style.transform = `translate(${p.x}px, ${p.y + 36}px) translate(-50%, 0)`;

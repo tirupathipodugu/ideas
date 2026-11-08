@@ -19,7 +19,7 @@ const pick = (a) => a[(Math.random() * a.length) | 0];
 // ---------- renderer ----------
 const canvas = $('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2('#120c26', 0.0075);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.2, 1200);
@@ -27,7 +27,7 @@ scene.add(new THREE.HemisphereLight('#3a3f8a', '#120c18', 0.9));
 const moonless = new THREE.DirectionalLight('#6a6ad0', 0.25); moonless.position.set(-30, 60, 20); scene.add(moonless);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.95, 0.6, 0.55);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.45, 0.8);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -37,7 +37,7 @@ const P = new Particles(scene);
 
 // warm point lights the stories switch on
 const lightPool = [];
-function light(pos) { const l = new THREE.PointLight('#ffb060', 0, 36, 1.3); l.position.copy(pos); scene.add(l); lightPool.push(l); return l; }
+function light(pos) { const l = new THREE.PointLight('#ffb060', 0, 28, 1.7); l.position.copy(pos); scene.add(l); lightPool.push(l); return l; }
 
 // ---------- sound ----------
 let ac = null, soundOn = true, noiseBuf = null;
@@ -89,8 +89,8 @@ function updateRockets(dt) {
     if (r.t >= 1) {
       rockets.splice(i, 1);
       const c = pick(FWC), c2 = Math.random() < 0.5 ? pick(FWC) : new THREE.Color(2.3, 2.2, 2);
-      P.burst(r.to, c, c2, 160, rand(8, 11));
-      flash.intensity = 120; flash.color.copy(c).multiplyScalar(0.4); flash.position.copy(r.to);
+      P.burst(r.to, c, c2, mode === 'end' || mode === 'finale' ? 220 : 160, mode === 'end' || mode === 'finale' ? rand(12, 16) : rand(8, 11));
+      flash.intensity = 50; flash.color.copy(c).multiplyScalar(0.4); flash.position.copy(r.to);
       boom();
     }
   }
@@ -134,6 +134,22 @@ const camPos = new V3(70, 36, 70), camLook = new V3(0, 0, 0);
 const fly = { from: null, to: null, t: 1, dur: 1, arc: 0 };
 function flyTo(p, l, dur = 3, arc = 4) { fly.from = { p: camPos.clone(), l: camLook.clone() }; fly.to = { p: p.clone(), l: l.clone() }; fly.t = 0; fly.dur = dur; fly.arc = arc; }
 const sstep = (u) => u * u * (3 - 2 * u);
+// Pull the camera back along its view line until every point to tap fits on this screen (portrait phones are narrow),
+// keeping clear of the top bar and the tip.
+const probe = new THREE.PerspectiveCamera();
+function fit(pos, look, pts) {
+  if (!pts.length) return [pos, look];
+  probe.fov = camera.fov; probe.aspect = camera.aspect; probe.near = camera.near; probe.far = camera.far; probe.updateProjectionMatrix();
+  const back = pos.clone().sub(look);
+  let p = pos.clone();
+  for (let k = 0; k < 60; k++) {
+    probe.position.copy(p); probe.lookAt(look); probe.updateMatrixWorld();
+    const ok = pts.every((q) => { const v = q.clone().project(probe); return v.z < 1 && Math.abs(v.x) < 0.86 && v.y < 0.62 && v.y > -0.9; });
+    if (ok) break;
+    p = look.clone().add(back.multiplyScalar(1.06));
+  }
+  return [p, look];
+}
 
 // ---------- UI ----------
 let lamps = 0, mode = 'title', ci = -1, playing = false, completeAt = -1, endT = 0, nextFw = 0;
@@ -170,7 +186,8 @@ function chapter(i) {
   st.active = true;
   [...prog.children].forEach((d, k) => { d.classList.toggle('on', k < i); d.classList.toggle('now', k === i); });
   $('where').textContent = ch.title;
-  flyTo(st.cam[0], st.cam[1], 3.5, 6);
+  const [cp, cl] = fit(st.cam[0], st.cam[1], st.focus?.() || []);
+  flyTo(cp, cl, 3.5, 6);
   setTip('');
   card({ kicker: ch.kicker, title: ch.title, paras: ch.story, vo: `${ch.key}-story`, buttons: [['✨ Play', () => { hideCard(); voice.pause(); playing = true; mode = 'play'; setTip(st.tip); st.begin(); }]] });
 }
@@ -184,7 +201,7 @@ function storyDone() {
 function finale() {
   hideCard(); mode = 'finale'; voice.pause(); setTip('');
   $('where').textContent = 'Happy Diwali';
-  flyTo(new V3(0, 62, 96), new V3(0, 0, -8), 7, 8);
+  flyTo(new V3(0, 46, 74), new V3(0, 4, -10), 7, 8);
   diyas.forEach((d) => { if (!d.on) setTimeout(() => d.light(), 1500 + Math.random() * 4500); });
   setTimeout(() => world.temple.setLit(1), 1200);
   setTimeout(() => {
@@ -214,8 +231,8 @@ function frame(now) {
   }
   if (mode === 'finale' || mode === 'end') {
     winA = Math.min(1, winA + dt * 0.4);
-    world.winMat.color.setRGB(0.1 + 1.9 * winA, 0.07 + 1.2 * winA, 0.05 + 0.4 * winA);
-    lightPool.forEach((l) => { l.intensity = Math.max(l.intensity, 40 * winA); });
+    world.winMat.color.setRGB(0.1 + 1.0 * winA, 0.07 + 0.65 * winA, 0.05 + 0.22 * winA);
+    lightPool.forEach((l) => { l.intensity = Math.max(l.intensity, 18 * winA); });
     if (mode === 'end' && T > nextFw) { const a = rand(0, Math.PI * 2), r = rand(0, 45); firework(new V3(Math.cos(a) * r, rand(24, 38), Math.sin(a) * r - 10)); nextFw = T + rand(0.4, 1.1); }
     if (mode === 'finale' && Math.random() < dt * 2.5) firework(new V3(rand(-40, 40), rand(26, 36), rand(-45, 15)));
   }

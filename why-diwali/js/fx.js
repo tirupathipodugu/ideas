@@ -42,9 +42,9 @@ export const TEX = {
 // ---------- diyas ----------
 const lathe = new THREE.LatheGeometry([[0, 0], [0.2, 0.02], [0.34, 0.09], [0.42, 0.2], [0.39, 0.23], [0.3, 0.16], [0, 0.15]].map(([a, b]) => new THREE.Vector2(a, b)), 16);
 const bodyMat = new THREE.MeshStandardMaterial({ color: '#b5521f', roughness: 0.75, emissive: '#3a1204', emissiveIntensity: 0.6 });
-const flameMat = new THREE.SpriteMaterial({ map: TEX.flame, color: new THREE.Color(2.4, 1.5, 0.7), blending: ADD, depthWrite: false, transparent: true });
-const reflMat = new THREE.SpriteMaterial({ map: TEX.flame, color: new THREE.Color(0.9, 0.55, 0.25), blending: ADD, depthWrite: false, transparent: true });
-const poolMat = new THREE.MeshBasicMaterial({ map: TEX.pool, blending: ADD, depthWrite: false, transparent: true, color: new THREE.Color(1.2, 1, 0.8) });
+const flameMat = new THREE.SpriteMaterial({ map: TEX.flame, color: new THREE.Color(1.5, 0.95, 0.42), blending: ADD, depthWrite: false, transparent: true });
+const reflMat = new THREE.SpriteMaterial({ map: TEX.flame, color: new THREE.Color(0.6, 0.36, 0.16), blending: ADD, depthWrite: false, transparent: true });
+const poolMat = new THREE.MeshBasicMaterial({ map: TEX.pool, blending: ADD, depthWrite: false, transparent: true, color: new THREE.Color(0.6, 0.5, 0.4) });
 const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 export const diyas = [];
 
@@ -78,7 +78,7 @@ export const updateDiyas = (t, dt) => diyas.forEach((d) => d.update(t, dt));
 
 /** A soft additive glow sprite (for windows, lanterns, the temple). */
 export function glowSprite(color, size) {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color, blending: ADD, depthWrite: false, transparent: true }));
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: color.clone().multiplyScalar(0.5), blending: ADD, depthWrite: false, transparent: true }));
   s.scale.set(size, size, 1);
   return s;
 }
@@ -111,7 +111,7 @@ export class Particles {
     this.ca = new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', this.pa); geo.setAttribute('color', this.ca);
     this.geo = geo;
-    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.5, map: TEX.dot, vertexColors: true, transparent: true, depthWrite: false, blending: ADD, sizeAttenuation: true }));
+    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.75, map: TEX.dot, vertexColors: true, transparent: true, depthWrite: false, blending: ADD, sizeAttenuation: true }));
     this.points.frustumCulled = false;
     scene.add(this.points);
   }

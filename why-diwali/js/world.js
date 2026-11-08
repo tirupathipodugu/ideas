@@ -125,8 +125,8 @@ function buildTemple(scene) {
     get lit() { return lit; },
     setLit(v) {
       lit = v;
-      gold.emissiveIntensity = 0.9 * v; marble.emissiveIntensity = 0.25 * v; halo.material.opacity = 0.35 * v;
-      reflMats.forEach((m) => { if (m.emissive) m.emissiveIntensity = (m.metalness > 0.5 ? 0.9 : 0.25) * v; });
+      gold.emissiveIntensity = 0.5 * v; marble.emissiveIntensity = 0.12 * v; halo.material.opacity = 0.25 * v;
+      reflMats.forEach((m) => { if (m.emissive) m.emissiveIntensity = (m.metalness > 0.5 ? 0.5 : 0.12) * v; });
     },
   };
 }
