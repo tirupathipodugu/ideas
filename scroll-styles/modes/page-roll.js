@@ -3,6 +3,9 @@
 (() => {
   const COLUMN = '[data-testid="primaryColumn"]';
   const NOT_A_FEED = /\/status\/|^\/(messages|settings|compose|i\/)/;
+  const NOTE = 'data-ssx-note';
+  const NOTE_STYLES = 6;
+  const BAR = 58; // Strip under the book that holds the sticky-note controls.
 
   const LEAF_STEP = 6; // Width of one slice of the turning sheet, in pixels.
   const REST_STEP = 12; // A resting page barely bends, so it uses wider slices.
@@ -64,6 +67,40 @@
     return 0;
   }
 
+  // The pieces of X around the book that are dressed as sticky notes. They stay X's own working elements.
+  function sidebarBlocks() {
+    const side = document.querySelector('[data-testid="sidebarColumn"]');
+    if (!side) return [];
+    const found = [...side.querySelectorAll('form[role="search"], aside, section, nav')];
+    return found
+      .filter((n) => !found.some((other) => other !== n && other.contains(n)))
+      .map((n) => {
+        let block = n; // Take the card around it, so X's own border and background go too.
+        for (let i = 0; i < 4 && block.parentElement !== side && block.parentElement.children.length === 1; i++) block = block.parentElement;
+        return block;
+      });
+  }
+
+  function pinnedHeader(col) {
+    const r = col.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, 2);
+    if (!hit || !col.contains(hit) || hit.closest('.ssx-book')) return null;
+    for (let n = hit; n && n !== col; n = n.parentElement) {
+      if (/(sticky|fixed)/.test(getComputedStyle(n).position)) return n;
+    }
+    return null;
+  }
+
+  let noteCount = 0;
+  function markNotes(col) {
+    const pieces = [...document.querySelectorAll('header[role="banner"] a, header[role="banner"] button, [data-testid="DMDrawer"]'), ...sidebarBlocks()];
+    pieces.forEach((n) => { if (!n.hasAttribute(NOTE)) n.setAttribute(NOTE, String(noteCount++ % NOTE_STYLES)); });
+    const head = pinnedHeader(col);
+    if (head) head.setAttribute(NOTE, 'flat'); // Straight, so the feed never peeks out behind it.
+  }
+
+  const clearNotes = () => document.querySelectorAll(`[${NOTE}]`).forEach((n) => n.removeAttribute(NOTE));
+
   // Text of a node, keeping the emoji X draws as images.
   function textOf(node) {
     let out = '';
@@ -86,7 +123,6 @@
     const text = words ? textOf(words).trim() : '';
     const time = article.querySelector('time');
     const stamp = time && time.closest('a');
-    const avatar = article.querySelector('[data-testid="Tweet-User-Avatar"] img, img[src*="profile_images"]');
     const photos = [...article.querySelectorAll('[data-testid="tweetPhoto"] img')].map((i) => i.src.replace(/name=\w+/, 'name=large'));
     const video = article.querySelector('video');
     const card = article.querySelector('[data-testid="card.wrapper"] img');
@@ -105,7 +141,7 @@
       name, handle, text, media,
       isVideo: !photos.length && !!(video && video.poster),
       link: stamp ? stamp.href : '',
-      avatar: avatar ? avatar.src : '',
+      bookmarked: !!article.querySelector('[data-testid="removeBookmark"]'),
       date: time ? new Date(time.dateTime).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '',
       social: social ? textOf(social).trim() : '',
       replies: count('reply'), reposts: count('retweet', 'unretweet'), likes: count('like', 'unlike'),
@@ -115,11 +151,11 @@
   // Everything measured from the feed column, shared by the page, the fans and the turn.
   function measure(col, top) {
     const r = col.getBoundingClientRect();
-    const W = r.width, H = innerHeight - top;
+    const W = r.width, H = innerHeight - top - BAR;
     const P = Math.max(W, H) * 1.5;
     const margin = FAN_LAYERS * FAN_DX + 9;
     const PW = W - 2 * margin;
-    const B = clamp(PW * 0.07, 14, 36);
+    const B = clamp(PW * 0.1, 18, 46);
     const PH = H - 2 * (8 + FAN_LAYERS * FAN_DY + (H / 2) * (B / P));
     // Height of the paper above the table: it rises out of the spine, then falls to the outer edge.
     const rise = (s) => B * (1 - Math.exp(-s / (PW * 0.11))) * (1 - 0.62 * Math.pow(s / PW, 2.4));
@@ -265,26 +301,26 @@
 
   // A short burst of filtered noise that sounds like paper.
   let audio;
-  function rustle() {
+  function rustle(seconds = 0.28, from = 2600, to = 900, level = 0.16) {
     if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return; // Browsers block sound until a click.
     audio = audio || new AudioContext();
     audio.resume();
-    const size = Math.floor(audio.sampleRate * 0.28);
+    const size = Math.floor(audio.sampleRate * seconds);
     const buffer = audio.createBuffer(1, size, audio.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / size, 1.6);
     const src = audio.createBufferSource(), filter = audio.createBiquadFilter(), gain = audio.createGain();
     src.buffer = buffer;
     filter.type = 'bandpass'; filter.Q.value = 0.7;
-    filter.frequency.setValueAtTime(2600, audio.currentTime);
-    filter.frequency.exponentialRampToValueAtTime(900, audio.currentTime + 0.28);
-    gain.gain.value = 0.16;
+    filter.frequency.setValueAtTime(from, audio.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(to, audio.currentTime + seconds);
+    gain.gain.value = level;
     src.connect(filter).connect(gain).connect(audio.destination);
     src.start();
   }
 
   function fitWords(flow, words, plates) {
-    const steps = plates ? [1, 0.88, 0.76, 0.66, 0.56] : [1.5, 1.25, 1, 0.88, 0.76, 0.66, 0.56, 0.48];
+    const steps = plates ? [1, 0.88, 0.76, 0.66, 0.56] : [1.2, 1, 0.88, 0.76, 0.66, 0.56, 0.48];
     const base = parseFloat(words.style.fontSize);
     if (plates) plates.style.flex = '0 0 0';
     const room = flow.clientHeight * (plates ? 0.6 : 1);
@@ -298,7 +334,8 @@
   globalThis.ScrollStyles.modes['page-roll'] = (ctx) => {
     let root = null, g = null, world = null, measureBox = null;
     let leaf = null, under = null, fans = null, emptyLeft = null;
-    let closeBtn = null, link = null, reopen = null;
+    let closeBtn = null, link = null, reopen = null, muteBtn = null, markBtn = null, ribbon = null, toastBox = null, toastTimer = 0;
+    let acting = false, muted = new Set();
     let open = false, dismissed = false, autoOpen = false, savedY = 0, path = location.pathname, top = 0;
     let posts = [], seen = new Set(), page = 0; // Page 0 is the title page; page n shows post n.
     let sheets = new Map();
@@ -308,24 +345,17 @@
 
     function writeBody(sheet, post, index) {
       const flow = el('div', 'ssx-flow');
-      flow.appendChild(el('div', 'ssx-running', post.social || post.handle));
-      const by = el('div', 'ssx-by');
-      if (post.avatar) {
-        const face = el('img', 'ssx-face-img');
-        face.src = post.avatar;
-        by.appendChild(face);
-      }
-      const who = el('div', 'ssx-who');
-      who.append(el('div', 'ssx-name', post.name), el('div', 'ssx-meta', [post.handle, post.date].filter(Boolean).join('  ·  ')));
-      by.appendChild(who);
-      flow.appendChild(by);
+      if (post.social) flow.appendChild(el('div', 'ssx-running', post.social));
+      flow.appendChild(el('div', 'ssx-name', post.name));
+      flow.appendChild(el('div', 'ssx-meta', [post.handle, post.date].filter(Boolean).join('  ·  ')));
+      flow.appendChild(el('div', 'ssx-orn', '❦'));
 
       let words = null;
       if (post.text) {
         words = el('div', 'ssx-words', post.text);
-        words.style.fontSize = `${23 * g.scale}px`;
+        words.style.fontSize = `${20 * g.scale}px`;
         if (post.text.length > 120 && /^[A-Za-z]/.test(post.text)) words.classList.add('ssx-dropcap');
-        if (post.text.length > 220) words.classList.add('ssx-justify');
+        if (post.text.length > 100) words.classList.add('ssx-justify');
         words.lang = 'en';
         flow.appendChild(words);
       }
@@ -349,6 +379,12 @@
       measureBox.replaceChildren(sheet);
       if (words) fitWords(flow, words, plates);
       measureBox.replaceChildren();
+
+      // Ink from the other side of the leaf, showing faintly through the paper.
+      const through = flow.cloneNode(true);
+      through.classList.add('ssx-bleed');
+      through.querySelectorAll('.ssx-plates').forEach((n) => n.remove());
+      sheet.prepend(through);
     }
 
     function sheetFor(index) {
@@ -382,17 +418,149 @@
     }
 
     function refreshLink() {
-      const post = postAt(page);
-      link.style.display = post && post.link && !session ? '' : 'none';
+      const post = postAt(page), ready = !!post && !session && !acting;
+      link.style.display = ready && post.link ? '' : 'none';
       if (post) link.href = post.link;
+      muteBtn.style.display = markBtn.style.display = ready ? '' : 'none';
+      markBtn.textContent = post && post.bookmarked ? 'Bookmarked' : 'Bookmark';
+      ribbon.style.display = ready && post.bookmarked ? '' : 'none';
+    }
+
+    function toast(message) {
+      if (!toastBox) return;
+      toastBox.textContent = message;
+      toastBox.style.display = '';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastBox.style.display = 'none'; }, 2600);
+    }
+
+    async function waitFor(find, ms) {
+      const end = performance.now() + ms;
+      for (;;) {
+        const found = find();
+        if (found || performance.now() > end) return found;
+        await new Promise((done) => setTimeout(done, 50));
+      }
+    }
+
+    function findArticle(post) {
+      const col = document.querySelector(COLUMN);
+      if (!col || !post.link) return null;
+      return [...col.querySelectorAll('article')].find((a) => {
+        const stamp = a.querySelector('time');
+        return stamp && stamp.closest('a') && stamp.closest('a').href === post.link;
+      }) || null;
+    }
+
+    // Runs an action on X's real post. X drops posts far from view, so the hidden feed goes back to it first.
+    async function onRealPost(post, action) {
+      if (acting || session || !post) return false;
+      acting = true;
+      refreshLink();
+      const feedY = scrollY;
+      document.documentElement.setAttribute('data-ssx-acting', '');
+      try {
+        if (!findArticle(post) && post.y !== undefined) scrollTo({ top: post.y - 200, behavior: 'instant' });
+        const article = await waitFor(() => findArticle(post), 1500);
+        return article ? await action(article) : false;
+      } catch (e) {
+        return false;
+      } finally {
+        scrollTo({ top: feedY, behavior: 'instant' });
+        document.documentElement.removeAttribute('data-ssx-acting');
+        acting = false;
+        if (root) refreshLink();
+      }
+    }
+
+    async function toggleBookmark() {
+      const post = postAt(page);
+      const want = post && !post.bookmarked;
+      const ok = await onRealPost(post, async (article) => {
+        const button = article.querySelector(`[data-testid="${want ? 'bookmark' : 'removeBookmark'}"]`);
+        if (!button) return false;
+        button.click();
+        return !!(await waitFor(() => (findArticle(post) || article).querySelector(`[data-testid="${want ? 'removeBookmark' : 'bookmark'}"]`), 1500));
+      });
+      if (!ok) { toast("Couldn't reach X's bookmark button"); return; }
+      post.bookmarked = want;
+      refreshLink();
+      toast(want ? 'Bookmarked on X' : 'Bookmark removed on X');
+    }
+
+    function closeXMenu() {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    }
+
+    async function muteAuthor() {
+      const post = postAt(page);
+      const ok = await onRealPost(post, async (article) => {
+        const caret = article.querySelector('[data-testid="caret"]');
+        if (!caret) return false;
+        caret.click();
+        const item = await waitFor(() => document.querySelector('[role="menu"] [data-testid="mute"]') || [...document.querySelectorAll('[role="menuitem"]')].find((m) => /\bmute\b/i.test(m.textContent)), 1500);
+        if (!item) { closeXMenu(); return false; }
+        item.click();
+        return true;
+      });
+      if (!ok) { toast("Couldn't reach X's mute option. Page kept."); return; }
+      await tearPage(post);
+      toast(`Muted ${post.handle} on X`);
+    }
+
+    // Rips the page out along a ragged line; the two pieces fall away and the next post is underneath.
+    async function tearPage(post) {
+      acting = true;
+      refreshLink();
+      if (ctx.sound()) rustle(0.5, 4200, 1400, 0.24);
+      const sheet = sheetFor(page);
+      const ragged = [];
+      let x = 46;
+      for (let i = 0; i <= 26; i++) {
+        x = clamp(x + (Math.random() - 0.5) * 9, 34, 66);
+        ragged.push(`${x.toFixed(1)}% ${((i / 26) * 100).toFixed(1)}%`);
+      }
+      const layer = el('div', 'ssx-tear');
+      layer.style.cssText = `left:${g.spineX}px;top:${(g.H - g.PH) / 2}px;width:${g.PW}px;height:${g.PH}px;`;
+      const piece = (shape) => {
+        const outer = el('div', 'ssx-tear-piece'), inner = el('div', 'ssx-tear-clip');
+        inner.style.clipPath = `polygon(${shape.join(',')})`;
+        const copy = sheet.cloneNode(true);
+        copy.style.left = '0';
+        inner.appendChild(copy);
+        outer.appendChild(inner);
+        layer.appendChild(outer);
+        return outer;
+      };
+      const leftPiece = piece(['0 0', ...ragged, '0 100%']);
+      const rightPiece = piece(['100% 0', ...ragged, '100% 100%']);
+      root.appendChild(layer);
+
+      muted.add(post.handle);
+      posts = [...posts.slice(0, page - 1), ...posts.slice(page - 1).filter((p) => p.handle !== post.handle)];
+      sheets = new Map();
+      under.shown = undefined;
+      showUnder(page);
+
+      const fall = `${g.H + 240}px`;
+      const options = { duration: 900, easing: 'cubic-bezier(.45,.05,.8,.5)', fill: 'forwards' };
+      const motions = [
+        leftPiece.animate([{ transform: 'none' }, { transform: 'translate(-16px, 4px) rotate(-3deg)', offset: 0.18 }, { transform: `translate(-90px, ${fall}) rotate(-26deg)` }], options).finished,
+        rightPiece.animate([{ transform: 'none' }, { transform: 'translate(18px, -5px) rotate(4deg)', offset: 0.18 }, { transform: `translate(110px, ${fall}) rotate(31deg)` }], options).finished,
+      ];
+      await Promise.all(motions).catch(() => {});
+      layer.remove();
+      acting = false;
+      if (root) refreshLink();
     }
 
     function placeRoot() {
       root.style.left = `${g.left}px`;
       root.style.top = `${g.top}px`;
       root.style.width = `${g.W}px`;
-      root.style.height = `${g.H}px`;
-      closeBtn.style.right = link.style.right = `${g.margin + 10}px`;
+      root.style.height = `${g.H + BAR}px`;
+      ribbon.style.left = `${g.spineX + g.PW - 64}px`;
+      ribbon.style.top = `${(g.H - g.PH) / 2 - 6}px`;
     }
 
     function buildWorld(col) {
@@ -430,7 +598,8 @@
       if (!col) return;
       col.querySelectorAll('article').forEach((article) => {
         const post = readPost(article);
-        if (post && !seen.has(post.key)) {
+        if (post && !seen.has(post.key) && !muted.has(post.handle)) {
+          post.y = article.getBoundingClientRect().top + scrollY;
           seen.add(post.key);
           posts.push(post);
           post.media.forEach((src) => { new Image().src = src; }); // Ready before its page opens.
@@ -453,8 +622,9 @@
       autoOpen = true;
       savedY = scrollY;
       if (reopen) reopen.style.display = 'none';
-      posts = []; seen = new Set(); page = 0; queued = 0;
+      posts = []; seen = new Set(); page = 0; queued = 0; muted = new Set();
       top = headerBottom(col); // Measured before the book covers the column.
+      markNotes(col);
       scrollTo({ top: 0, behavior: 'instant' });
       root = el('div', 'ssx-book');
       root.id = 'ssx-book';
@@ -462,10 +632,19 @@
       measureBox = el('div', 'ssx-measure');
       closeBtn = el('button', 'ssx-pill ssx-close', 'Close book');
       closeBtn.addEventListener('click', () => { dismissed = true; closeBook(true); });
+      muteBtn = el('button', 'ssx-pill ssx-mute', 'Mute');
+      muteBtn.addEventListener('click', muteAuthor);
+      markBtn = el('button', 'ssx-pill ssx-mark', 'Bookmark');
+      markBtn.addEventListener('click', toggleBookmark);
+      ribbon = el('div', 'ssx-ribbon');
+      toastBox = el('div', 'ssx-toast');
+      toastBox.style.display = 'none';
       link = el('a', 'ssx-pill ssx-open', 'Open on X');
       link.target = '_blank';
       link.rel = 'noopener';
-      root.append(measureBox, closeBtn, link);
+      const bar = el('div', 'ssx-bar');
+      bar.append(muteBtn, markBtn, link, closeBtn);
+      root.append(measureBox, ribbon, toastBox, bar);
       col.appendChild(root); // Inside the column, so X's own pop-ups and dialogs still sit on top.
       buildWorld(col);
       harvest();
@@ -478,6 +657,7 @@
       open = false;
       root.remove();
       root = world = null;
+      clearNotes();
       if (restore) scrollTo({ top: savedY, behavior: 'instant' });
       syncReopen();
     }
@@ -504,6 +684,7 @@
         open = false;
         session = null;
         root = world = null;
+        clearNotes();
       }
       if (!open) {
         if (!dismissed && eligible()) openBook();
@@ -511,9 +692,10 @@
         return;
       }
       harvest();
+      markNotes(document.querySelector(COLUMN)); // X re-renders these as you use it.
       // X only loads more posts as it scrolls; this moves the feed hidden behind the book.
-      if (posts.length < page + READ_AHEAD) scrollBy({ top: innerHeight * 0.9, behavior: 'instant' });
-      if (session) return;
+      if (!acting && posts.length < page + READ_AHEAD) scrollBy({ top: innerHeight * 0.9, behavior: 'instant' });
+      if (session || acting) return;
       showUnder(page);
       refreshLink();
       if (autoOpen && posts.length >= 1) {
@@ -535,7 +717,7 @@
 
     // Lifts a sheet with the next page already underneath. Returns the turn, or null if there is no page.
     function begin(dir, lean = 0.12) {
-      if (session || !open) return null;
+      if (session || !open || acting) return null;
       if (dir < 0 && page <= 0) return null;
       if (dir > 0 && !postAt(page + 1)) return null; // Still collecting posts.
       fillFaces(leaf.strips, sheetFor(dir > 0 ? page : page - 1));

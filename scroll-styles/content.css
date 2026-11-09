@@ -1,4 +1,53 @@
-/* The book sits exactly over the feed column. X's menu, header and sidebar stay as they are. */
+/* While the book is open, the rest of X is sticky notes on the desk. */
+[data-ssx-note="0"] { --ssx-note: #fff1a3; --ssx-tilt: -1.3deg; }
+[data-ssx-note="1"] { --ssx-note: #ffc8d7; --ssx-tilt: 1deg; }
+[data-ssx-note="2"] { --ssx-note: #bee3ff; --ssx-tilt: -0.6deg; }
+[data-ssx-note="3"] { --ssx-note: #c9f2bf; --ssx-tilt: 1.3deg; }
+[data-ssx-note="4"] { --ssx-note: #ffd7a6; --ssx-tilt: -1deg; }
+[data-ssx-note="5"] { --ssx-note: #dccdff; --ssx-tilt: 0.7deg; }
+[data-ssx-note="flat"] { --ssx-note: #fff1a3; --ssx-tilt: 0deg; }
+
+[data-ssx-note] {
+  background: linear-gradient(rgba(70, 48, 22, 0.09) 0 9px, transparent 9px), var(--ssx-note) !important;
+  border: none !important;
+  border-radius: 2px 2px 16px 2px !important;
+  box-shadow: 2px 7px 12px rgba(0, 0, 0, 0.5) !important;
+  transform: rotate(var(--ssx-tilt));
+  transition: transform 0.15s ease-out;
+  color: #2b2418 !important;
+}
+
+[data-ssx-note]:not([data-ssx-note="flat"]) {
+  margin-top: 5px !important;
+  margin-bottom: 5px !important;
+}
+
+[data-ssx-note]:not([data-ssx-note="flat"]):hover {
+  transform: rotate(0deg) translateY(-2px);
+}
+
+[data-ssx-note] * {
+  background-color: transparent !important;
+  color: #2b2418 !important;
+  border-color: rgba(43, 36, 24, 0.28) !important;
+  font-family: "Ink Free", "Bradley Hand", "Segoe Print", cursive !important;
+}
+
+[data-ssx-note] input::placeholder {
+  color: rgba(43, 36, 24, 0.7) !important;
+}
+
+[data-ssx-note] button,
+[data-ssx-note] [role="button"] {
+  border: 1.5px solid rgba(43, 36, 24, 0.6) !important;
+}
+
+/* X's menu stays out of sight while Bookmark or Mute presses its real buttons. */
+html[data-ssx-acting] [role="menu"] {
+  opacity: 0 !important;
+}
+
+/* The book sits exactly over the feed column. */
 .ssx-book {
   position: fixed;
   z-index: 2;
@@ -21,7 +70,7 @@
 
 .ssx-world {
   position: absolute;
-  inset: 0;
+  inset: 0 0 58px 0;
   pointer-events: none;
 }
 
@@ -46,13 +95,13 @@
 }
 
 .ssx-edge {
-  fill: #f6eedc;
+  fill: #efe4cb;
   stroke: rgba(70, 48, 22, 0.75);
   stroke-width: 1;
 }
 
 .ssx-edge-alt {
-  fill: #d3c3a3;
+  fill: #cfbe9c;
 }
 
 .ssx-frame {
@@ -85,19 +134,24 @@
 }
 
 .ssx-tint {
-  background: #f1e8d6;
+  background: #e9dcc2;
   opacity: 0;
 }
 
+/* Aged paper: browned edges, large soft stains, and fine fibres over a warm stock. */
 .ssx-sheet {
   position: absolute;
   top: 0;
   overflow: hidden;
   box-sizing: border-box;
-  color: #2a241c;
-  background-color: #f8f2e4;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .32 0 0 0 0 .18 0 0 0 .14 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23p)'/%3E%3C/svg%3E");
+  color: #231c13;
+  background-color: #eee2c9;
+  background-image:
+    radial-gradient(ellipse 72% 64% at 50% 47%, transparent 58%, rgba(122, 84, 34, 0.26) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .55' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .34 0 0 0 0 .24 0 0 0 0 .12 0 0 0 .3 -.03'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23p)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='900'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.009' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .52 0 0 0 0 .36 0 0 0 0 .14 0 0 0 .55 -.17'/%3E%3C/filter%3E%3Crect width='700' height='900' filter='url(%23s)'/%3E%3C/svg%3E");
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  font-feature-settings: "liga", "onum";
   font-size: 16px;
   line-height: 1.5;
 }
@@ -108,74 +162,72 @@
 
 .ssx-flow {
   position: absolute;
-  top: 2.2em;
+  top: 3em;
   bottom: 3.8em;
-  left: 3.6em;
-  right: 2.8em;
+  left: 3.4em;
+  right: 2.7em;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  text-shadow: 0 0 0.6px rgba(35, 28, 19, 0.55); /* Ink spreading slightly into the paper. */
+}
+
+.ssx-bleed {
+  transform: scaleX(-1);
+  opacity: 0.07;
 }
 
 .ssx-running {
   flex: none;
   text-align: center;
-  font-size: 0.72em;
-  letter-spacing: 0.16em;
+  font-size: 0.7em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #84745c;
+  color: #6d5c43;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 1.6em;
-}
-
-.ssx-by {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 0.8em;
-  margin-bottom: 1.1em;
-  padding-bottom: 0.9em;
-  border-bottom: 1px solid rgba(92, 66, 34, 0.28);
-}
-
-.ssx-face-img {
-  width: 2.9em;
-  height: 2.9em;
-  border-radius: 50%;
-  flex: none;
-  object-fit: cover;
-  box-shadow: 0 0 0 1px rgba(92, 66, 34, 0.3);
-}
-
-.ssx-who {
-  min-width: 0;
+  margin-bottom: 1.5em;
 }
 
 .ssx-name {
-  font-size: 1.14em;
-  font-weight: 700;
-  line-height: 1.25;
+  flex: none;
+  text-align: center;
+  font-size: 1.32em;
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .ssx-meta {
+  flex: none;
+  text-align: center;
   font-size: 0.82em;
   font-style: italic;
-  color: #6f614c;
+  color: #5e4f39;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 0.25em;
+}
+
+.ssx-orn {
+  flex: none;
+  text-align: center;
+  font-size: 1.2em;
+  line-height: 1;
+  color: #6d5c43;
+  margin: 0.6em 0 0.9em;
 }
 
 .ssx-words {
   flex: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  line-height: 1.46;
+  line-height: 1.42;
 }
 
 .ssx-justify {
@@ -185,13 +237,13 @@
 
 .ssx-dropcap::first-letter {
   float: left;
-  font-size: 3.4em;
-  line-height: 0.86;
+  font-size: 3.5em;
+  line-height: 0.84;
   padding: 0.05em 0.08em 0 0;
-  color: #6a2c18;
-  font-weight: 700;
+  color: #5e2413;
 }
 
+/* Pictures are printed on the page: the paper shows through the ink. */
 .ssx-plates {
   position: relative;
   flex: 1 1 0;
@@ -207,10 +259,16 @@
   min-height: 0;
   object-fit: cover;
   display: block;
-  box-shadow: 0 0 0 1px rgba(92, 66, 34, 0.3);
 }
 
-.ssx-plates-1 img { object-fit: contain; box-shadow: none; }
+.ssx-plates::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(226, 204, 160, 0.26);
+}
+
+.ssx-plates-1 img { object-fit: contain; }
 .ssx-plates-2 { grid-template-columns: 1fr 1fr; }
 .ssx-plates-3,
 .ssx-plates-4 { grid-template: 1fr 1fr / 1fr 1fr; }
@@ -222,8 +280,8 @@
   top: 50%;
   transform: translate(-50%, -50%);
   padding: 0.3em 1em;
-  background: rgba(24, 16, 8, 0.72);
-  color: #f8f2e4;
+  background: rgba(35, 24, 12, 0.76);
+  color: #eee2c9;
   font-size: 0.86em;
   letter-spacing: 0.08em;
 }
@@ -232,19 +290,19 @@
   flex: none;
   margin-top: 1em;
   text-align: center;
-  font-size: 0.8em;
+  font-size: 0.78em;
   font-style: italic;
-  color: #6f614c;
+  color: #5e4f39;
 }
 
 .ssx-folio {
   position: absolute;
-  bottom: 1.5em;
+  bottom: 1.6em;
   left: 0;
   right: 0;
   text-align: center;
   font-size: 0.9em;
-  color: #6f614c;
+  color: #5e4f39;
 }
 
 .ssx-title {
@@ -257,39 +315,104 @@
 
 .ssx-title-name {
   font-size: 4em;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #6a2c18;
+  font-variant: small-caps;
+  color: #5e2413;
   line-height: 1.1;
 }
 
 .ssx-title-sub {
   font-size: 1.15em;
   font-style: italic;
-  color: #6f614c;
+  color: #5e4f39;
 }
 
 .ssx-title-rule {
   width: 42%;
   height: 1px;
-  background: rgba(92, 66, 34, 0.5);
+  background: rgba(70, 48, 22, 0.55);
+}
+
+/* A satin ribbon hangs on a bookmarked page. */
+.ssx-ribbon {
+  position: absolute;
+  z-index: 1;
+  width: 30px;
+  height: 150px;
+  background: linear-gradient(to right, #8f1d1d, #c0322c 45%, #8a1a1a);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 88%, 0 100%);
+  filter: drop-shadow(2px 3px 3px rgba(0, 0, 0, 0.45));
+  animation: ssx-ribbon 0.35s ease-out;
+  pointer-events: none;
+}
+
+@keyframes ssx-ribbon {
+  from { transform: translateY(-120px); }
+  to { transform: none; }
+}
+
+.ssx-tear {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ssx-tear-piece {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 0 1.5px #fff8e8) drop-shadow(4px 8px 10px rgba(0, 0, 0, 0.5));
+}
+
+.ssx-tear-clip {
+  position: absolute;
+  inset: 0;
+}
+
+/* The controls are sticky notes on the desk under the book. */
+.ssx-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 
 .ssx-pill {
   min-height: 44px;
-  padding: 0 18px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 22px;
-  background: rgba(24, 16, 10, 0.86);
-  color: #fff;
-  font: 600 15px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  border: none;
+  border-radius: 2px 2px 12px 2px;
+  background: linear-gradient(rgba(70, 48, 22, 0.09) 0 7px, transparent 7px), #fff1a3;
+  color: #2b2418;
+  font: 700 16px/1 "Ink Free", "Bradley Hand", "Segoe Print", cursive;
   text-decoration: none;
   cursor: pointer;
+  box-shadow: 2px 5px 9px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s ease-out;
 }
 
-.ssx-pill:hover { background: rgba(60, 40, 24, 0.95); }
-.ssx-close { position: absolute; top: 18px; z-index: 3; }
-.ssx-open { position: absolute; bottom: 18px; z-index: 3; }
+.ssx-pill:hover { transform: translateY(-2px); }
+.ssx-mute { background-color: #ffc8d7; background-image: linear-gradient(rgba(70, 48, 22, 0.09) 0 7px, transparent 7px); transform: rotate(-1.2deg); }
+.ssx-mark { background-color: #bee3ff; background-image: linear-gradient(rgba(70, 48, 22, 0.09) 0 7px, transparent 7px); transform: rotate(0.9deg); }
+.ssx-open { background-color: #c9f2bf; background-image: linear-gradient(rgba(70, 48, 22, 0.09) 0 7px, transparent 7px); transform: rotate(-0.6deg); }
+.ssx-close { background-color: #ffd7a6; background-image: linear-gradient(rgba(70, 48, 22, 0.09) 0 7px, transparent 7px); transform: rotate(1.1deg); }
 .ssx-reopen { position: fixed; bottom: 24px; z-index: 2; }
+
+.ssx-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 66px;
+  z-index: 4;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  white-space: nowrap;
+  background: rgba(24, 16, 10, 0.92);
+  color: #fff;
+  border-radius: 6px;
+  font: 600 15px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  pointer-events: none;
+}

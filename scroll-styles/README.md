@@ -11,7 +11,7 @@ A Chrome extension that lets you choose how your X feed moves.
 
 ## Page Roll
 
-The feed column becomes a book with one post on each page. X's menu, header and sidebar stay where they are.
+The feed column becomes a book with one post on each page. X's menu, header and sidebar stay where they are and turn into sticky notes that still work.
 
 - Drag a page with the mouse. It follows your hand; hold it, reverse it or let go.
 - A trackpad swipe moves the page with your fingers.
