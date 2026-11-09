@@ -42,17 +42,17 @@
 .ssx-cover {
   fill: #5a2f1b;
   stroke: #2c150a;
-  stroke-width: 1;
+  stroke-width: 1.5;
 }
 
 .ssx-edge {
-  fill: #efe5cf;
-  stroke: rgba(92, 66, 34, 0.45);
-  stroke-width: 0.7;
+  fill: #f6eedc;
+  stroke: rgba(70, 48, 22, 0.75);
+  stroke-width: 1;
 }
 
 .ssx-edge-alt {
-  fill: #e0d4b9;
+  fill: #d3c3a3;
 }
 
 .ssx-frame {

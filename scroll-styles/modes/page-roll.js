@@ -15,9 +15,9 @@
   const DRAG_COMMIT = 0.45;
   const DRAG_START = 8;
   const MAX_QUEUE = 3;
-  const FAN_LAYERS = 12;
-  const FAN_DX = 2.4, FAN_DY = 1, FAN_DZ = 1.6;
-  const FAN_MIN_LEFT = 5; // Pages already behind you when the book opens.
+  const FAN_LAYERS = 14;
+  const FAN_DX = 4.5, FAN_DY = 1.2, FAN_DZ = 1.6;
+  const FAN_MIN_LEFT = 10; // Pages already behind you when the book opens.
   const READ_AHEAD = 10; // Posts to keep collected beyond the open page.
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -117,7 +117,7 @@
     const r = col.getBoundingClientRect();
     const W = r.width, H = innerHeight - top;
     const P = Math.max(W, H) * 1.5;
-    const margin = FAN_LAYERS * FAN_DX + 10;
+    const margin = FAN_LAYERS * FAN_DX + 9;
     const PW = W - 2 * margin;
     const B = clamp(PW * 0.07, 14, 36);
     const PH = H - 2 * (8 + FAN_LAYERS * FAN_DY + (H / 2) * (B / P));
@@ -251,7 +251,7 @@
     };
     const paths = [];
     const cover = document.createElementNS(SVG, 'path');
-    cover.setAttribute('d', outline(FAN_LAYERS + 3));
+    cover.setAttribute('d', outline(FAN_LAYERS + 1));
     cover.setAttribute('class', 'ssx-cover');
     paths.push(cover);
     for (let j = layers; j >= 1; j--) {
