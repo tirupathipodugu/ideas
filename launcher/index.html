@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Launcher</title>
+  <meta name="description" content="A custom home screen for your iPhone.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Launcher">
+  <meta name="theme-color" content="#0b0d14">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <div class="clock">
+        <div id="time"></div>
+        <div id="date"></div>
+      </div>
+      <div class="controls" id="normalControls">
+        <button class="pill" id="editBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
+          Edit
+        </button>
+      </div>
+      <div class="controls" id="editControls" hidden>
+        <button class="pill" id="addBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Add
+        </button>
+        <button class="pill" id="wallBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 16l5-5 4 4 3-3 4 4"/></svg>
+          Wallpaper
+        </button>
+        <button class="pill primary" id="doneBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+          Done
+        </button>
+      </div>
+    </header>
+
+    <div class="banner" id="installBanner" hidden>
+      <p><strong>Add this to your Home Screen first.</strong> In Safari, tap Share, then Add to Home Screen. Changes you make in Safari won't carry over.</p>
+      <button class="pill" id="installOk" type="button">Got it</button>
+    </div>
+
+    <form class="search" id="searchForm" role="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <input id="q" type="search" placeholder="Search apps or the web" aria-label="Search apps or the web" autocomplete="off" autocorrect="off" autocapitalize="off" enterkeyhint="go">
+    </form>
+
+    <main id="scroller">
+      <div id="grid"></div>
+      <a id="webResult" class="web-result" target="_blank" rel="noopener" hidden></a>
+      <p id="editHint" class="edit-hint" hidden>Drag to rearrange. The first four sit in the dock. Tap an app to change or remove it.</p>
+    </main>
+
+    <footer id="dock"></footer>
+  </div>
+
+  <div id="toast" role="status" hidden></div>
+
+  <dialog id="catalogSheet" class="sheet" aria-labelledby="catalogTitle">
+    <div class="sheet-head">
+      <h2 id="catalogTitle" tabindex="-1" autofocus>Add an app</h2>
+      <button class="pill" id="catalogClose" type="button">Close</button>
+    </div>
+    <input id="catalogQ" class="field" type="search" placeholder="Find an app" aria-label="Find an app" autocomplete="off" autocorrect="off" autocapitalize="off">
+    <button class="pill wide" id="customBtn" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add your own app or website
+    </button>
+    <ul id="catalogList"></ul>
+  </dialog>
+
+  <dialog id="formSheet" class="sheet" aria-labelledby="formTitle">
+    <form id="appForm" method="dialog" novalidate>
+      <div class="sheet-head">
+        <h2 id="formTitle" tabindex="-1" autofocus>Edit app</h2>
+        <button class="pill" id="formClose" type="button">Close</button>
+      </div>
+      <label>Name
+        <input id="fName" class="field" maxlength="24" autocomplete="off" required>
+      </label>
+      <label>Link or Shortcut name
+        <input id="fLink" class="field" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="whatsapp:// or example.com or My Shortcut" required>
+      </label>
+      <p class="hint">For an app with no link, like Camera: make a Shortcut with an Open App action, then type the Shortcut's name here.</p>
+      <p class="error" id="fError" hidden></p>
+      <div class="row">
+        <label>Icon
+          <input id="fGlyph" class="field" maxlength="8" autocomplete="off" placeholder="Letter or emoji">
+        </label>
+        <label>Colour
+          <input id="fColor" class="field color" type="color" value="#4f6ef7">
+        </label>
+      </div>
+      <div class="sheet-actions">
+        <button class="pill danger" id="fRemove" type="button">Remove</button>
+        <button class="pill primary" id="fSave" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
