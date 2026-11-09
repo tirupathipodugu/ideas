@@ -329,9 +329,9 @@
     let root = null, g = null, world = null, measureBox = null;
     let leaf = null, under = null, fans = null, emptyLeft = null, cast = null;
     let closeBtn = null, link = null, reopen = null, muteBtn = null, markBtn = null, ribbon = null, toastBox = null, toastTimer = 0;
-    let acting = false, muted = new Set();
+    let acting = false, muted = new Set(), home = null;
     let open = false, dismissed = false, autoOpen = false, savedY = 0, path = location.pathname, top = 0;
-    let posts = [], seen = new Set(), page = 0; // Page 0 is the title page; page n shows post n.
+    let posts = [], seen = new Set(), page = 0; // Page 0 is your home screen; page n shows post n.
     let sheets = new Map();
     let session = null, queued = 0, drag = null, touch = null, resizeTimer = 0;
 
@@ -375,17 +375,58 @@
       measureBox.replaceChildren();
     }
 
+    // Copies what is on screen in the feed right now, to be the book's first page.
+    function captureHome(col) {
+      const c = col.getBoundingClientRect();
+      const items = [...col.querySelectorAll('[data-testid="cellInnerDiv"]')]
+        .map((cell) => ({ cell, r: cell.getBoundingClientRect() }))
+        .filter(({ r }) => r.height > 0 && r.bottom > top && r.top < innerHeight)
+        .map(({ cell, r }) => {
+          const node = cell.cloneNode(true);
+          node.setAttribute('aria-hidden', 'true');
+          node.style.cssText += `;position:absolute;margin:0;left:${r.left - c.left}px;top:${r.top - top}px;width:${r.width}px;transform:none;`;
+          // A copied post must not be mistaken for the real one when Bookmark or Mute looks it up.
+          node.querySelectorAll('article').forEach((a) => {
+            const plain = el('div', a.className);
+            plain.append(...a.childNodes);
+            a.replaceWith(plain);
+          });
+          // A copied video has no picture, so show its poster.
+          node.querySelectorAll('video').forEach((v) => {
+            const still = el('img');
+            still.src = v.poster;
+            still.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+            v.replaceWith(still);
+          });
+          return node;
+        });
+      return { width: c.width, items };
+    }
+
+    function writeHome(sheet) {
+      const body = getComputedStyle(document.body);
+      sheet.classList.add('ssx-home');
+      sheet.style.background = body.backgroundColor;
+      sheet.style.color = body.color;
+      sheet.style.fontFamily = body.fontFamily;
+      const feed = el('div', 'ssx-home-feed');
+      feed.style.width = `${home.width}px`;
+      feed.style.height = `${g.PH / (g.PW / home.width)}px`;
+      feed.style.transform = `scale(${g.PW / home.width})`;
+      home.items.forEach((node) => feed.appendChild(node.cloneNode(true)));
+      sheet.appendChild(feed);
+    }
+
     function sheetFor(index) {
       const post = postAt(index);
-      const key = index === 0 ? 'title' : post ? index : 'blank';
+      const key = index === 0 ? 'home' : post ? index : 'blank';
       if (sheets.has(key)) return sheets.get(key);
       const sheet = el('div', 'ssx-sheet');
       sheet.style.width = `${g.PW}px`;
       sheet.style.height = `${g.PH}px`;
       sheet.style.fontSize = `${16 * g.scale}px`;
       if (index === 0) {
-        sheet.classList.add('ssx-title');
-        sheet.append(el('div', 'ssx-title-rule'), el('div', 'ssx-title-name', 'The Feed'), el('div', 'ssx-title-sub', 'Posts, bound by hand'), el('div', 'ssx-title-rule'));
+        writeHome(sheet);
       } else if (post) {
         writeBody(sheet, post, index);
       }
@@ -680,6 +721,7 @@
       if (reopen) reopen.style.display = 'none';
       posts = []; seen = new Set(); page = 0; queued = 0; muted = new Set();
       top = headerBottom(col); // Measured before the book covers the column.
+      home = captureHome(col);
       markNotes(col);
       scrollTo({ top: 0, behavior: 'instant' });
       root = el('div', 'ssx-book');
