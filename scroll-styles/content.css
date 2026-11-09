@@ -89,19 +89,19 @@ html[data-ssx-acting] [role="menu"] {
 }
 
 .ssx-cover {
-  fill: #5a2f1b;
-  stroke: #2c150a;
+  fill: #c9d1dd;
+  stroke: #8d97a8;
   stroke-width: 1.5;
 }
 
 .ssx-edge {
-  fill: #efe4cb;
-  stroke: rgba(70, 48, 22, 0.75);
-  stroke-width: 1;
+  fill: #ffffff;
+  stroke: rgba(112, 124, 146, 0.75);
+  stroke-width: 1.2;
 }
 
 .ssx-edge-alt {
-  fill: #cfbe9c;
+  fill: #edf0f6;
 }
 
 .ssx-frame {
@@ -125,6 +125,43 @@ html[data-ssx-acting] [role="menu"] {
   will-change: transform;
 }
 
+/* The thickness of the sheet along its bottom and top edges. */
+.ssx-strip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  background: linear-gradient(#f5f7fb, #aeb7c6);
+}
+
+.ssx-edge-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  transform-origin: 0 50%;
+  background: linear-gradient(to right, #ffffff, #d4dbe6);
+  will-change: transform;
+}
+
+.ssx-cast-box {
+  position: absolute;
+  overflow: hidden;
+}
+
+.ssx-cast {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 170px;
+  opacity: 0;
+  background: linear-gradient(to right, rgba(34, 46, 70, 0.34), rgba(34, 46, 70, 0.1) 45%, transparent);
+  will-change: transform, opacity;
+}
+
 .ssx-face,
 .ssx-tint,
 .ssx-shade {
@@ -134,24 +171,21 @@ html[data-ssx-acting] [role="menu"] {
 }
 
 .ssx-tint {
-  background: #e9dcc2;
+  background: #ffffff;
   opacity: 0;
 }
 
-/* Aged paper: browned edges, large soft stains, and fine fibres over a warm stock. */
+/* Thick glassy white stock, with broad soft reflections. */
 .ssx-sheet {
   position: absolute;
   top: 0;
   overflow: hidden;
   box-sizing: border-box;
-  color: #231c13;
-  background-color: #eee2c9;
-  background-image:
-    radial-gradient(ellipse 72% 64% at 50% 47%, transparent 58%, rgba(122, 84, 34, 0.26) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .55' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .34 0 0 0 0 .24 0 0 0 0 .12 0 0 0 .3 -.03'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23p)'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='900'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.009' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .52 0 0 0 0 .36 0 0 0 0 .14 0 0 0 .55 -.17'/%3E%3C/filter%3E%3Crect width='700' height='900' filter='url(%23s)'/%3E%3C/svg%3E");
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-  font-feature-settings: "liga", "onum";
+  color: #14171c;
+  background-color: #fdfdfe;
+  background-image: linear-gradient(112deg, #ffffff 0%, #f3f6fb 34%, #ffffff 50%, #eef2f8 72%, #fcfdff 100%);
+  font-family: "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-feature-settings: "liga";
   font-size: 16px;
   line-height: 1.5;
 }
@@ -169,12 +203,6 @@ html[data-ssx-acting] [role="menu"] {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  text-shadow: 0 0 0.6px rgba(35, 28, 19, 0.55); /* Ink spreading slightly into the paper. */
-}
-
-.ssx-bleed {
-  transform: scaleX(-1);
-  opacity: 0.07;
 }
 
 .ssx-running {
@@ -183,7 +211,7 @@ html[data-ssx-acting] [role="menu"] {
   font-size: 0.7em;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #6d5c43;
+  color: #6b7280;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -207,7 +235,7 @@ html[data-ssx-acting] [role="menu"] {
   text-align: center;
   font-size: 0.82em;
   font-style: italic;
-  color: #5e4f39;
+  color: #6b7280;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -219,7 +247,7 @@ html[data-ssx-acting] [role="menu"] {
   text-align: center;
   font-size: 1.2em;
   line-height: 1;
-  color: #6d5c43;
+  color: #6b7280;
   margin: 0.6em 0 0.9em;
 }
 
@@ -240,7 +268,7 @@ html[data-ssx-acting] [role="menu"] {
   font-size: 3.5em;
   line-height: 0.84;
   padding: 0.05em 0.08em 0 0;
-  color: #5e2413;
+  color: #14171c;
 }
 
 /* Pictures are printed on the page: the paper shows through the ink. */
@@ -259,13 +287,7 @@ html[data-ssx-acting] [role="menu"] {
   min-height: 0;
   object-fit: cover;
   display: block;
-}
-
-.ssx-plates::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(226, 204, 160, 0.26);
+  border-radius: 0.5em;
 }
 
 .ssx-plates-1 img { object-fit: contain; }
@@ -292,7 +314,7 @@ html[data-ssx-acting] [role="menu"] {
   text-align: center;
   font-size: 0.78em;
   font-style: italic;
-  color: #5e4f39;
+  color: #6b7280;
 }
 
 .ssx-folio {
@@ -302,7 +324,7 @@ html[data-ssx-acting] [role="menu"] {
   right: 0;
   text-align: center;
   font-size: 0.9em;
-  color: #5e4f39;
+  color: #6b7280;
 }
 
 .ssx-title {
@@ -316,20 +338,20 @@ html[data-ssx-acting] [role="menu"] {
 .ssx-title-name {
   font-size: 4em;
   font-variant: small-caps;
-  color: #5e2413;
+  color: #14171c;
   line-height: 1.1;
 }
 
 .ssx-title-sub {
   font-size: 1.15em;
   font-style: italic;
-  color: #5e4f39;
+  color: #6b7280;
 }
 
 .ssx-title-rule {
   width: 42%;
   height: 1px;
-  background: rgba(70, 48, 22, 0.55);
+  background: rgba(107, 114, 128, 0.5);
 }
 
 /* A satin ribbon hangs on a bookmarked page. */
@@ -350,21 +372,88 @@ html[data-ssx-acting] [role="menu"] {
   to { transform: none; }
 }
 
-.ssx-tear {
+/* Mute: the page becomes a ball of paper and goes in the bin. */
+.ssx-crumple {
   position: absolute;
+  inset: 0;
   z-index: 2;
   pointer-events: none;
+  perspective: 1300px;
 }
 
-.ssx-tear-piece {
+.ssx-flight {
   position: absolute;
-  inset: 0;
-  filter: drop-shadow(0 0 1.5px #fff8e8) drop-shadow(4px 8px 10px rgba(0, 0, 0, 0.5));
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
 }
 
-.ssx-tear-clip {
+.ssx-ball {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.ssx-ball-core {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #ffffff, #e3e8ef 58%, #a4aebd);
+}
+
+.ssx-tile {
+  position: absolute;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.ssx-crease {
   position: absolute;
   inset: 0;
+  opacity: 0;
+}
+
+.ssx-bin {
+  position: absolute;
+  width: 110px;
+  height: 136px;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.6));
+  will-change: transform;
+}
+
+.ssx-bin-mouth,
+.ssx-bin-lip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 110px;
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 5px solid #c3cad6;
+}
+
+.ssx-bin-mouth {
+  background: radial-gradient(ellipse at 50% 70%, #0b0e13, #333a46);
+}
+
+.ssx-bin-lip {
+  clip-path: inset(50% 0 0 0);
+  border-color: #eef1f6;
+}
+
+.ssx-bin-body {
+  position: absolute;
+  left: 0;
+  top: 15px;
+  width: 110px;
+  height: 121px;
+  clip-path: polygon(0 0, 6% 7px, 14% 10.4px, 25% 13px, 38% 14.3px, 50% 15px, 62% 14.3px, 75% 13px, 86% 10.4px, 94% 7px, 100% 0, 91% 100%, 9% 100%);
+  background:
+    repeating-linear-gradient(to right, rgba(20, 26, 36, 0.2) 0 2px, transparent 2px 11px),
+    linear-gradient(to right, #4d5664, #cdd4df 24%, #fbfcfe 38%, #a4aebd 66%, #454e5b);
 }
 
 /* The controls are sticky notes on the desk under the book. */

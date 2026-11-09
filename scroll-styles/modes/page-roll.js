@@ -18,9 +18,10 @@
   const DRAG_COMMIT = 0.45;
   const DRAG_START = 8;
   const MAX_QUEUE = 3;
-  const FAN_LAYERS = 14;
-  const FAN_DX = 4.5, FAN_DY = 1.2, FAN_DZ = 1.6;
-  const FAN_MIN_LEFT = 10; // Pages already behind you when the book opens.
+  const FAN_LAYERS = 9;
+  const FAN_DX = 7, FAN_DY = 1.8, FAN_DZ = 2.4; // Few, thick sheets.
+  const FAN_MIN_LEFT = 6; // Pages already behind you when the book opens.
+  const FOLLOW = 0.04; // Seconds the page takes to catch up with your hand; hides uneven input.
   const READ_AHEAD = 10; // Posts to keep collected beyond the open page.
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -178,16 +179,17 @@
     return points;
   }
 
-  // Darkness of the paper: light comes from the upper left, and the spine falls into shadow.
+  // Shading of the sheet: soft cool shadow, plus a bright glassy band where the bend catches the light.
   function shadeAt(a, facing, s, g) {
     const sign = facing ? 1 : -1;
     const light = Math.max(0, sign * Math.sin(a) * 0.28 + sign * Math.cos(a) * 0.96);
-    const gutter = 0.3 * Math.exp(-s / (g.PW * 0.035)) + 0.1 * Math.exp(-s / (g.PW * 0.14));
-    return clamp(0.5 * (1 - light) + gutter, 0, 0.82);
+    const gutter = 0.2 * Math.exp(-s / (g.PW * 0.03)) + 0.07 * Math.exp(-s / (g.PW * 0.12));
+    const glint = 0.16 * Math.exp(-Math.pow((light - 0.7) / 0.12, 2));
+    return clamp(0.42 * (1 - light) + gutter - glint, 0, 0.7);
   }
 
   function paintShade(strip, a0, a1) {
-    const value = `linear-gradient(to right, rgba(36,22,8,${a0.toFixed(3)}), rgba(36,22,8,${a1.toFixed(3)}))`;
+    const value = `linear-gradient(to right, rgba(34,46,70,${a0.toFixed(2)}), rgba(34,46,70,${a1.toFixed(2)}))`;
     if (strip.paint !== value) {
       strip.paint = value;
       strip.shade.style.backgroundImage = value;
@@ -224,7 +226,7 @@
       return rest + (Math.PI - 2 * rest) * e;
     };
     const tilt = lean * Math.sin(Math.PI * p);
-    let x = 0, z = 0, xMax = -Infinity;
+    let x = 0, z = 0, xMax = -Infinity, lastAngle = 0;
     for (const strip of leaf.strips) {
       const a0 = angle(strip.s), a1 = angle(strip.s + step), a = (a0 + a1) / 2;
       const nextX = x + Math.cos(a) * step, nextZ = z + Math.sin(a) * step;
@@ -233,23 +235,15 @@
       strip.el.style.transform = `translate3d(0, ${-g.PH / 2}px, 0) skewX(${-tilt * (x / g.PW)}rad) translate3d(${x}px, 0, ${z}px) rotateY(${-a}rad)`;
       if (facing !== strip.facing) {
         strip.facing = facing;
-        strip.tint.style.opacity = facing ? 0 : 0.84; // The back of the sheet: the post shows through, mirrored and faint.
+        strip.tint.style.opacity = facing ? 0 : 0.8; // The back of the sheet: the post shows through, mirrored and faint.
       }
       paintShade(strip, shadeAt(a0, facing, strip.s, g), shadeAt(a1, facing, strip.s + step, g));
       xMax = Math.max(xMax, x, nextX);
-      x = nextX; z = nextZ;
+      x = nextX; z = nextZ; lastAngle = a;
     }
+    // The outer edge of the sheet, so it reads as thick when it stands up.
+    leaf.tip.style.transform = `translate3d(0, ${-g.PH / 2}px, 0) skewX(${-tilt * (x / g.PW)}rad) translate3d(${x}px, 0, ${z}px) rotateY(${-(lastAngle + Math.PI / 2)}rad)`;
     return xMax;
-  }
-
-  // The shadow the moving sheet throws on the page beneath it.
-  function castShadow(side, xMax, p) {
-    const lift = Math.sin(Math.PI * p);
-    const full = 0.3 * Math.min(1, lift * 2.2), fall = 18 + 70 * lift;
-    const on = (x) => (x <= xMax ? full : full * Math.exp(-(x - xMax) / fall));
-    side.strips.forEach((strip, i) => {
-      paintShade(strip, clamp(side.base[i][0] + on(side.chain[i].x), 0, 0.85), clamp(side.base[i][1] + on(side.chain[i + 1].x), 0, 0.85));
-    });
   }
 
   function buildSide(frame, g) {
@@ -333,7 +327,7 @@
 
   globalThis.ScrollStyles.modes['page-roll'] = (ctx) => {
     let root = null, g = null, world = null, measureBox = null;
-    let leaf = null, under = null, fans = null, emptyLeft = null;
+    let leaf = null, under = null, fans = null, emptyLeft = null, cast = null;
     let closeBtn = null, link = null, reopen = null, muteBtn = null, markBtn = null, ribbon = null, toastBox = null, toastTimer = 0;
     let acting = false, muted = new Set();
     let open = false, dismissed = false, autoOpen = false, savedY = 0, path = location.pathname, top = 0;
@@ -379,12 +373,6 @@
       measureBox.replaceChildren(sheet);
       if (words) fitWords(flow, words, plates);
       measureBox.replaceChildren();
-
-      // Ink from the other side of the leaf, showing faintly through the paper.
-      const through = flow.cloneNode(true);
-      through.classList.add('ssx-bleed');
-      through.querySelectorAll('.ssx-plates').forEach((n) => n.remove());
-      sheet.prepend(through);
     }
 
     function sheetFor(index) {
@@ -410,6 +398,13 @@
       if (under.shown === key) return;
       under.shown = key;
       fillFaces(under.strips, sheetFor(index));
+    }
+
+    function prepareLeaf(index) {
+      const key = postAt(index) || index === 0 ? index : 'blank';
+      if (leaf.shown === key) return;
+      leaf.shown = key;
+      fillFaces(leaf.strips, sheetFor(index));
     }
 
     function redrawFans() {
@@ -504,51 +499,105 @@
         return true;
       });
       if (!ok) { toast("Couldn't reach X's mute option. Page kept."); return; }
-      await tearPage(post);
+      await crumplePage(post);
       toast(`Muted ${post.handle} on X`);
     }
 
-    // Rips the page out along a ragged line; the two pieces fall away and the next post is underneath.
-    async function tearPage(post) {
+    // Scrunches the page into a ball of paper and throws it in a dustbin that rises at the corner.
+    async function crumplePage(post) {
       acting = true;
       refreshLink();
-      if (ctx.sound()) rustle(0.5, 4200, 1400, 0.24);
       const sheet = sheetFor(page);
-      const ragged = [];
-      let x = 46;
-      for (let i = 0; i <= 26; i++) {
-        x = clamp(x + (Math.random() - 0.5) * 9, 34, 66);
-        ragged.push(`${x.toFixed(1)}% ${((i / 26) * 100).toFixed(1)}%`);
+      const COLS = 7, ROWS = 10, BLEED = 7;
+      const cw = g.PW / COLS, ch = g.PH / ROWS;
+      const R = Math.min(g.PW, g.PH) * 0.15;
+      const rootH = g.H + BAR;
+      const cx = g.spineX + g.PW / 2, cy = (g.H - g.PH) / 2 + g.PH / 2;
+      const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+
+      const layer = el('div', 'ssx-crumple');
+      const flight = el('div', 'ssx-flight');
+      flight.style.left = `${cx}px`;
+      flight.style.top = `${cy}px`;
+      const ball = el('div', 'ssx-ball');
+      const core = el('div', 'ssx-ball-core');
+      core.style.cssText = `left:${-R * 0.97}px;top:${-R * 0.97}px;width:${R * 1.94}px;height:${R * 1.94}px;`;
+      ball.appendChild(core);
+
+      const pose = (x, y, z, lon, lat, r, spin, scale) => `translate3d(${x}px, ${y}px, ${z}px) rotateY(${lon}rad) rotateX(${lat}rad) translateZ(${r}px) rotateZ(${spin}rad) scale(${scale})`;
+      const folds = [];
+      for (let row = 0; row < ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+          const u = ((col + 0.5) / COLS) * 2 - 1, v = ((row + 0.5) / ROWS) * 2 - 1;
+          const dx = (u * g.PW) / 2, dy = (v * g.PH) / 2;
+          const w = cw + 2 * BLEED, h = ch + 2 * BLEED;
+          const j = () => rand(0, BLEED); // Irregular outlines give the ball its sharp creases.
+          const tile = el('div', 'ssx-tile');
+          tile.style.cssText = `left:${-w / 2}px;top:${-h / 2}px;width:${w}px;height:${h}px;clip-path:polygon(${j()}px ${j()}px, ${w - j()}px ${j()}px, ${w - j()}px ${h - j()}px, ${j()}px ${h - j()}px);`;
+          const copy = sheet.cloneNode(true);
+          copy.style.left = `${BLEED - col * cw}px`;
+          copy.style.top = `${BLEED - row * ch}px`;
+          const crease = el('div', 'ssx-crease');
+          const dark = rand(0.04, 0.4);
+          crease.style.background = `linear-gradient(${rand(0, 360)}deg, rgba(34,46,70,${dark}), rgba(34,46,70,${dark * 0.25}) 46%, rgba(255,255,255,.75) 50%, rgba(34,46,70,${dark * 0.8}) 54%, rgba(34,46,70,${dark * 0.5}))`;
+          tile.append(copy, crease);
+          ball.appendChild(tile);
+
+          const lon = u * 2.9, lat = v * 1.35, spin = rand(-1.5, 1.5);
+          const timing = { duration: 560, delay: (1 - Math.max(Math.abs(u), Math.abs(v))) * 110, easing: 'cubic-bezier(.45,.02,.25,1)', fill: 'both' };
+          folds.push(tile.animate([
+            { transform: pose(dx, dy, 0, 0, 0, 0, 0, 1) },
+            { transform: pose(dx * 0.6, dy * 0.6, rand(-70, 70), lon * 0.45, lat * 0.45, R * 0.4, spin * 0.6, 0.84) },
+            { transform: pose(0, 0, 0, lon, lat, R, spin, 0.62) },
+          ], timing).finished);
+          crease.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+        }
       }
-      const layer = el('div', 'ssx-tear');
-      layer.style.cssText = `left:${g.spineX}px;top:${(g.H - g.PH) / 2}px;width:${g.PW}px;height:${g.PH}px;`;
-      const piece = (shape) => {
-        const outer = el('div', 'ssx-tear-piece'), inner = el('div', 'ssx-tear-clip');
-        inner.style.clipPath = `polygon(${shape.join(',')})`;
-        const copy = sheet.cloneNode(true);
-        copy.style.left = '0';
-        inner.appendChild(copy);
-        outer.appendChild(inner);
-        layer.appendChild(outer);
-        return outer;
+      core.animate([{ opacity: 0 }, { opacity: 0, offset: 0.55 }, { opacity: 1 }], { duration: 640, fill: 'both' });
+      flight.appendChild(ball);
+
+      const binW = 110, binH = 136;
+      const binLeft = g.W - g.margin - binW + 8, binTop = rootH - binH - 2;
+      const part = (...children) => {
+        const box = el('div', 'ssx-bin');
+        box.style.left = `${binLeft}px`;
+        box.style.top = `${binTop}px`;
+        box.append(...children);
+        return box;
       };
-      const leftPiece = piece(['0 0', ...ragged, '0 100%']);
-      const rightPiece = piece(['100% 0', ...ragged, '100% 100%']);
+      const binBack = part(el('div', 'ssx-bin-mouth'));
+      const body = el('div', 'ssx-bin-body');
+      const binFront = part(body, el('div', 'ssx-bin-lip'));
+      layer.append(binBack, flight, binFront);
       root.appendChild(layer);
 
       muted.add(post.handle);
       posts = [...posts.slice(0, page - 1), ...posts.slice(page - 1).filter((p) => p.handle !== post.handle)];
       sheets = new Map();
       under.shown = undefined;
+      leaf.shown = undefined;
       showUnder(page);
 
-      const fall = `${g.H + 240}px`;
-      const options = { duration: 900, easing: 'cubic-bezier(.45,.05,.8,.5)', fill: 'forwards' };
-      const motions = [
-        leftPiece.animate([{ transform: 'none' }, { transform: 'translate(-16px, 4px) rotate(-3deg)', offset: 0.18 }, { transform: `translate(-90px, ${fall}) rotate(-26deg)` }], options).finished,
-        rightPiece.animate([{ transform: 'none' }, { transform: 'translate(18px, -5px) rotate(4deg)', offset: 0.18 }, { transform: `translate(110px, ${fall}) rotate(31deg)` }], options).finished,
-      ];
-      await Promise.all(motions).catch(() => {});
+      const bothBin = (frames, options) => Promise.all([binBack.animate(frames, options).finished, binFront.animate(frames, options).finished]);
+      bothBin([{ transform: `translateY(${binH + 10}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1.15)', fill: 'both' });
+      if (ctx.sound()) for (let i = 0; i < 6; i++) setTimeout(() => rustle(0.09, rand(2400, 5200), 1200, 0.2), i * 85);
+      await Promise.all(folds).catch(() => {});
+
+      // The throw: an arc under gravity, shrinking slightly as it travels, spinning all the way.
+      const endX = binLeft + binW / 2, endY = binTop + 15 + R * 0.62 + 14;
+      const arc = Math.max(70, Math.min(150, cy - 40));
+      const path = [];
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24;
+        const x = (endX - cx) * t, y = (endY - cy) * t - 4 * arc * t * (1 - t);
+        path.push({ transform: `translate(${x}px, ${y}px) scale(${1 - 0.38 * t})` });
+      }
+      ball.animate([{ transform: 'rotateZ(0deg)' }, { transform: 'rotateZ(620deg)' }], { duration: 580, fill: 'both' });
+      await flight.animate(path, { duration: 580, easing: 'cubic-bezier(.3,.1,.7,.95)', fill: 'both' }).finished.catch(() => {});
+      flight.style.visibility = 'hidden'; // It has dropped inside.
+      if (ctx.sound()) rustle(0.14, 220, 90, 0.45);
+      await bothBin([{ transform: 'none' }, { transform: 'rotate(4deg)', offset: 0.3 }, { transform: 'rotate(-3deg)', offset: 0.65 }, { transform: 'none' }], { duration: 260 }).catch(() => {});
+      await bothBin([{ transform: 'none' }, { transform: `translateY(${binH + 10}px)` }], { duration: 260, easing: 'ease-in', fill: 'both' }).catch(() => {});
       layer.remove();
       acting = false;
       if (root) refreshLink();
@@ -586,8 +635,15 @@
       leafFrame.style.visibility = 'hidden';
       under = buildSide(restFrame, g);
       emptyLeft = Array.from({ length: 9 }, (_, i) => ({ s: (g.PW * i) / 8, x: 0, z: 0 }));
-      leaf = { frame: leafFrame, strips: buildStrips(leafFrame, g, g.leafStep, Math.round(g.PW / g.leafStep)) };
-      world.append(svg, restFrame, leafFrame);
+      const tip = el('div', 'ssx-edge-tip');
+      tip.style.height = `${g.PH}px`;
+      leaf = { frame: leafFrame, tip, shown: undefined, strips: buildStrips(leafFrame, g, g.leafStep, Math.round(g.PW / g.leafStep)) };
+      leafFrame.appendChild(tip);
+      const castBox = el('div', 'ssx-cast-box');
+      castBox.style.cssText = `left:${g.spineX}px;top:${(g.H - g.PH) / 2}px;width:${g.PW}px;height:${g.PH}px;`;
+      cast = el('div', 'ssx-cast');
+      castBox.appendChild(cast);
+      world.append(svg, restFrame, castBox, leafFrame);
       root.prepend(world);
       showUnder(page);
       redrawFans();
@@ -691,12 +747,13 @@
         else syncReopen();
         return;
       }
+      if (session || acting) return; // Nothing touches X's feed during a turn.
       harvest();
       markNotes(document.querySelector(COLUMN)); // X re-renders these as you use it.
       // X only loads more posts as it scrolls; this moves the feed hidden behind the book.
-      if (!acting && posts.length < page + READ_AHEAD) scrollBy({ top: innerHeight * 0.9, behavior: 'instant' });
-      if (session || acting) return;
+      if (posts.length < page + READ_AHEAD) scrollBy({ top: innerHeight * 0.9, behavior: 'instant' });
       showUnder(page);
+      prepareLeaf(page);
       refreshLink();
       if (autoOpen && posts.length >= 1) {
         autoOpen = false;
@@ -708,7 +765,8 @@
     function show(s) {
       const p = s.dir > 0 ? s.q : 1 - s.q;
       const xMax = shapeLeaf(leaf, g, p, s.lean);
-      castShadow(under, xMax, p);
+      cast.style.transform = `translate3d(${xMax}px, 0, 0)`;
+      cast.style.opacity = Math.min(1, Math.sin(Math.PI * p) * 2.2);
       if (!s.sounded && s.q > 0.1) {
         s.sounded = true;
         if (ctx.sound()) rustle();
@@ -720,9 +778,9 @@
       if (session || !open || acting) return null;
       if (dir < 0 && page <= 0) return null;
       if (dir > 0 && !postAt(page + 1)) return null; // Still collecting posts.
-      fillFaces(leaf.strips, sheetFor(dir > 0 ? page : page - 1));
+      prepareLeaf(dir > 0 ? page : page - 1);
       if (dir > 0) showUnder(page + 1);
-      session = { dir, lean, q: 0, v: 0, at: performance.now(), raf: 0, timer: 0, settling: false, sounded: false, source: '' };
+      session = { dir, lean, q: 0, target: 0, v: 0, at: performance.now(), raf: 0, timer: 0, settling: false, sounded: false, source: '' };
       show(session);
       leaf.frame.style.visibility = 'visible';
       root.setAttribute('data-turning', '');
@@ -741,7 +799,7 @@
       endSession(s);
       if (done) page += s.dir;
       showUnder(page);
-      under.strips.forEach((strip, i) => paintShade(strip, under.base[i][0], under.base[i][1]));
+      cast.style.opacity = 0;
       leaf.frame.style.visibility = 'hidden';
       redrawFans();
       refreshLink();
@@ -752,17 +810,32 @@
       }
     }
 
+    function follow(s) {
+      let last = performance.now();
+      const step = (t) => {
+        if (session !== s || s.settling) return;
+        const dt = Math.max(0, (t - last) / 1000);
+        last = t;
+        s.q += (s.target - s.q) * (1 - Math.exp(-dt / FOLLOW));
+        if (Math.abs(s.target - s.q) < 0.002) s.q = s.target;
+        show(s);
+        s.raf = s.q === s.target ? 0 : requestAnimationFrame(step);
+      };
+      s.raf = requestAnimationFrame(step);
+    }
+
     function scrub(s, q) {
       const next = clamp(q, 0, 1), now = performance.now();
-      s.v = s.v * 0.7 + ((next - s.q) / Math.max(1, now - s.at)) * 1000 * 0.3;
-      s.q = next;
+      s.v = s.v * 0.7 + ((next - s.target) / Math.max(1, now - s.at)) * 1000 * 0.3;
+      s.target = next;
       s.at = now;
-      show(s);
+      if (!s.raf) follow(s);
     }
 
     // Springs the page to rest, carrying the speed of the gesture into it.
     function settle(s, target, velocity, stiffness = 170, damping = 25) {
       s.settling = true;
+      cancelAnimationFrame(s.raf);
       clearTimeout(s.timer);
       let x = s.q, v = velocity, last = performance.now();
       const step = (t) => {
@@ -782,13 +855,13 @@
 
     function release(s, threshold) {
       const v = performance.now() - s.at > 90 ? 0 : s.v; // A pause before letting go cancels the flick.
-      settle(s, s.q + v * 0.12 >= threshold ? 1 : 0, v);
+      settle(s, s.target + v * 0.12 >= threshold ? 1 : 0, v);
     }
 
     function autoTurn(s) {
       s.source = s.source || 'auto';
       if (queued) settle(s, 1, 0, 130, 23);
-      else settle(s, 1, 0, 70, 17);
+      else settle(s, 1, 0, 90, 19);
     }
 
     function queueTurn(dir) {
@@ -821,9 +894,9 @@
         s.source = 'wheel';
       }
       const s = session;
-      const q = s.q + (px * s.dir) / WHEEL_TRAVEL;
-      if (q <= 0) { finish(s, false); return; }
-      if (q >= 1) { scrub(s, 1); finish(s, true); return; }
+      const q = s.target + (px * s.dir) / WHEEL_TRAVEL;
+      if (q <= 0) { settle(s, 0, 0); return; }
+      if (q >= 1) { settle(s, 1, s.v); return; }
       scrub(s, q);
       clearTimeout(s.timer);
       s.timer = setTimeout(() => release(s, WHEEL_COMMIT), WHEEL_HOLD);
