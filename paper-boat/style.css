@@ -1,0 +1,58 @@
+/* Paper Boat Race: the courtyard fills the screen; controls sit on a frosted dark pill. */
+:root {
+  --ink: #f3f5f6;
+  --muted: rgba(243, 245, 246, .78);
+  --glass: rgba(14, 18, 22, .72);
+  --line: rgba(220, 232, 240, .22);
+  --accent: #e9e4d6;
+  --accent-ink: #1b1d1f;
+  --gutter: 16px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #20262a; color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(8, 10, 12, .38) 100%); }
+
+.top { position: fixed; z-index: 2; top: max(10px, env(safe-area-inset-top)); left: max(var(--gutter), env(safe-area-inset-left)); right: max(var(--gutter), env(safe-area-inset-right)); display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+.top p { margin: 0; }
+.title { font-weight: 750; font-size: 16px; letter-spacing: .01em; padding: 8px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); white-space: nowrap; }
+.stats { padding: 8px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dot { margin: 0 7px; color: var(--muted); }
+@media (max-width: 380px) { .title { font-size: 14px; padding: 8px 11px; } .stats { font-size: 14px; padding: 8px 11px; } }
+
+.hint { position: fixed; z-index: 2; left: 50%; transform: translateX(-50%); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 74px); margin: 0; font-size: 15px; font-weight: 650; text-align: center; max-width: calc(100% - 2 * var(--gutter)); pointer-events: none; padding: 6px 14px; border-radius: 999px; background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.hint:empty { display: none; }
+
+.controls { position: fixed; z-index: 3; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 6px; padding: 6px; border-radius: 32px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); max-width: calc(100% - 2 * var(--gutter)); }
+.pill { position: relative; overflow: hidden; min-height: 52px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; font-size: 15px; font-weight: 650; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
+.pill:hover { background: rgba(255,255,255,.08); }
+.pill > * { position: relative; }
+.blow { min-width: 150px; justify-content: center; background: rgba(233, 228, 214, .16); font-weight: 750; }
+.blow.held { background: rgba(233, 228, 214, .30); }
+.meter { position: absolute !important; left: 0; top: 0; bottom: 0; width: 0%; background: rgba(233, 228, 214, .28); transition: width .06s linear; pointer-events: none; }
+@media (max-width: 420px) { .controls { width: calc(100% - 2 * var(--gutter)); } .pill { padding: 0 11px; gap: 5px; font-size: 14px; } .blow { min-width: 0; flex: 1; } }
+
+.overlay { position: fixed; inset: 0; z-index: 5; display: grid; place-items: end center; padding: var(--gutter); padding-bottom: max(var(--gutter), env(safe-area-inset-bottom)); background: linear-gradient(to bottom, rgba(10, 13, 16, 0) 35%, rgba(10, 13, 16, .6) 75%); animation: fade .5s ease both; }
+.start { background: linear-gradient(to bottom, rgba(10, 13, 16, .05) 0%, rgba(10, 13, 16, .55) 38%, rgba(10, 13, 16, .9) 70%); }
+.card { max-width: 400px; width: 100%; text-align: center; display: grid; gap: 10px; padding: 20px 18px; border-radius: 22px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.kicker { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .14em; color: var(--accent); font-weight: 700; }
+.card h2 { margin: 0; font-size: 26px; line-height: 1.18; text-wrap: balance; }
+.card p { margin: 0; color: var(--muted); }
+.small { font-size: 14px; }
+.result { font-size: 22px; font-weight: 750; color: var(--ink) !important; font-variant-numeric: tabular-nums; }
+.tries { margin: 2px 0 2px; padding: 0; list-style: none; display: grid; gap: 6px; text-align: left; font-size: 15px; }
+.tries li { padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.07); }
+.primary { margin-top: 6px; min-height: 52px; padding: 13px 20px; border: 0; border-radius: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 16px; }
+.link { background: none; border: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; padding: 10px; min-height: 48px; font-size: 15px; }
+.status { min-height: 1.4em; font-size: 14px; }
+@media (max-height: 520px) {
+  .tries { display: none; }
+  .card { padding: 14px 16px; gap: 6px; }
+  .card h2 { font-size: 22px; }
+}
+@keyframes fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .overlay { animation: none; } }

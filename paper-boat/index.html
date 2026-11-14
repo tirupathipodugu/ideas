@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- Paper Boat Race: blow into your mic to sail a folded notebook-paper boat across a rain-flooded courtyard. Children's Day, 14 Nov. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:">
+<title>Paper Boat Race</title>
+<meta name="description" content="Kaagaz ki kashti: blow into your mic to sail a paper boat across a monsoon courtyard, past leaves and frogs, to the drain.">
+<meta name="theme-color" content="#20262a">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23263036%22/%3E%3Cpath d=%22M5 19h22l-4 6H9z%22 fill=%22%23eeeae0%22/%3E%3Cpath d=%22M16 6l6 13H10z%22 fill=%22%23d9d4c6%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<canvas id="view" aria-label="A paper boat on rain water in a courtyard"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header class="top">
+  <p class="title">Paper Boat Race</p>
+  <p class="stats"><span id="time">0:00.0</span><span class="dot" aria-hidden="true">·</span><span id="togo">16 m to go</span></p>
+</header>
+
+<p class="hint" id="hint" aria-live="polite"></p>
+
+<nav class="controls" aria-label="Controls">
+  <button type="button" id="sound" class="pill" aria-pressed="true"><span class="ic" aria-hidden="true">🔊</span> <span class="lbl">Sound on</span></button>
+  <button type="button" id="blow" class="pill blow" aria-label="Hold to blow"><span class="meter" id="meter" aria-hidden="true"></span><span class="ic" aria-hidden="true">💨</span> <span class="lbl">Hold to blow</span></button>
+  <button type="button" id="again" class="pill"><span class="ic" aria-hidden="true">↻</span> <span class="lbl">Race again</span></button>
+</nav>
+
+<div class="overlay" id="win" hidden>
+  <div class="card">
+    <p class="kicker">Through the drain gate</p>
+    <h2 id="winTitle">Your boat made it home.</h2>
+    <p class="result" id="result"></p>
+    <p class="best" id="best"></p>
+    <button type="button" id="again2" class="primary">Race again</button>
+  </div>
+</div>
+
+<div class="overlay start" id="start">
+  <div class="card">
+    <p class="kicker">Children's Day · 14 November</p>
+    <h2>Kaagaz ki kashti. Blow it home.</h2>
+    <ul class="tries">
+      <li>Blow into your mic to sail. Blow harder to go faster.</li>
+      <li>Drag left or right, or tilt your phone, to steer round the leaves.</li>
+      <li>Mind the frogs. Reach the drain gate at the far end.</li>
+    </ul>
+    <p class="small">The mic is only listened to on this device to hear you blow. Nothing is recorded or sent.</p>
+    <button type="button" id="go" class="primary">Start with mic</button>
+    <button type="button" id="nomic" class="link">Play without mic (hold Blow or Space)</button>
+    <p class="status" id="status" role="status"></p>
+  </div>
+</div>
+</body>
+</html>
