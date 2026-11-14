@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pocket Garden</title>
+  <meta name="description" content="Hold up your hands and a garden grows on them: moss, ferns, flowers and butterflies, live on your camera.">
+  <meta property="og:title" content="Pocket Garden">
+  <meta property="og:description" content="Hold up your hands. Watch a garden grow on them.">
+  <meta name="theme-color" content="#0b100d">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="stage"></canvas>
+
+  <section id="intro">
+    <div class="card">
+      <div class="sprig" aria-hidden="true">🌿</div>
+      <h1>Pocket Garden</h1>
+      <p>Hold up your hands. Watch a garden grow on them.</p>
+      <button id="start" class="primary"><span aria-hidden="true">📷</span> Start camera</button>
+      <button id="demo" class="ghost"><span aria-hidden="true">✋</span> Try the demo hand</button>
+      <small>Runs on your device. Nothing is uploaded.</small>
+    </div>
+  </section>
+
+  <div id="hint" role="status" aria-live="polite"></div>
+
+  <nav id="bar" aria-label="Controls">
+    <button id="btn-camera"><span aria-hidden="true">🔄</span><span id="camera-label">Flip camera</span></button>
+    <button id="btn-season"><span aria-hidden="true">🌼</span><span id="season-label">Meadow</span></button>
+    <button id="btn-sound" aria-pressed="true"><span id="sound-icon" aria-hidden="true">🔊</span><span id="sound-label">Sound on</span></button>
+    <button id="btn-snap" class="snap"><span aria-hidden="true">📸</span><span>Snap</span></button>
+  </nav>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
