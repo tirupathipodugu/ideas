@@ -5,6 +5,7 @@
 // follow the fingers with no per-plant work on the CPU.
 
 import * as THREE from '../vendor/three/three.module.js';
+import { starMoss, pompom, buds, fern, sprig } from './plants.js';
 
 // Canonical open right hand, palm length (wrist -> middle knuckle) = 1. Used for the demo hand and for
 // sizing how many plants each segment gets.
@@ -36,7 +37,7 @@ export const HAND = {
     [13, 14, 0.11, 1, 0], [14, 15, 0.10, 2, 0], [15, 16, 0.095, 3, 1],
     [17, 18, 0.10, 1, 0], [18, 19, 0.09, 2, 0], [19, 20, 0.085, 3, 1],
   ],
-  counts: { grass: 1500, leaves: 900, flowers: 240, crown: 0, ferns: 14, bugs: 3 },
+  counts: { moss: 3000, pompoms: 110, buds: 90, ferns: 28, sprigs: 48, bugs: 0 },
   // unit length = palm (wrist -> middle knuckle)
   unit: (J) => J[0].distanceTo(J[9]),
   frameN: (J, out) => out.crossVectors(J[5].clone().sub(J[0]), J[17].clone().sub(J[0])).normalize(),
@@ -88,7 +89,7 @@ export const BODY = {
     [52, 51, 0.3, 0, 1],                                               // head: shown only for the demo figure
     [44, 45, 0.05, 0, 0, 'crown'], [45, 46, 0.05, 0, 0, 'crown'], [46, 47, 0.05, 0, 0, 'crown'], [47, 48, 0.05, 0, 0, 'crown'],
   ],
-  counts: { grass: 5200, leaves: 3000, flowers: 760, crown: 200, ferns: 30, bugs: 5 },
+  counts: { moss: 6000, pompoms: 200, buds: 160, ferns: 30, sprigs: 80, bugs: 4 },
   unit: (J) => Math.max(1, J[11].distanceTo(J[12])),
   frameN: (J, out) => out.set(0, 0, 1),
   virtuals(J, V) {
@@ -156,7 +157,7 @@ export const FACE = {
     ...FACE_U.map((u, k) => [5 + k * 2, 6 + k * 2, 0.17, Math.abs(k - 2), 3]),
     [15, 16, 0.27, 2, 1, 'fern'],                                        // neck
   ],
-  counts: { grass: 1500, leaves: 900, flowers: 240, crown: 0, ferns: 10, bugs: 2 },
+  counts: { moss: 2600, pompoms: 100, buds: 80, ferns: 16, sprigs: 36, bugs: 0 },
   unit: (J) => Math.max(1, J[0].distanceTo(J[1])),
   frameN: (J, out) => out.set(0, 0, 1),
   virtuals(J, V) {
@@ -296,8 +297,10 @@ float grow(float delay) { return smoothstep(0.0, 1.0, clamp((uAge - delay) / 0.7
 const PLANT_VS = /* glsl */`
 ${COMMON}
 attribute vec3 aSeg; attribute vec2 aAt; attribute vec4 aRnd; attribute float aDelay;
-uniform float uSizeMin; uniform float uSizeMax; uniform float uDroop; uniform float uFaceCam; uniform float uCrawl;
+uniform float uSizeMin; uniform float uSizeMax; uniform float uDroop; uniform float uFaceCam; uniform float uCrawl; uniform float uSink; uniform float uLean;
+attribute vec3 aCol; attribute float aH;
 varying vec2 vUv; varying float vH; varying vec4 vRnd; varying float vLight; varying float vFacing;
+varying vec3 vCol; varying vec3 vN; varying vec3 vUp; varying vec3 vP; varying float vHt;
 void main() {
   float s = aAt.x, th = aAt.y;
   vec3 P, N, D, U, V;
@@ -309,15 +312,21 @@ void main() {
   }
   frameOf(aSeg, s, th, P, N, D, U, V);
   vec3 up = normalize(mix(N, vec3(0.0, 0.0, 1.0), uFaceCam));
+  vec3 surfN = N;
   vec3 T = normalize(cross(up, abs(up.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
   float ang = aRnd.x * 6.2831;
   if (uCrawl > 0.5) { T = normalize(D - up * dot(D, up)); ang = cos(uTime * (0.25 + aRnd.z * 0.25) + aRnd.w * 6.28) > 0.0 ? 0.0 : 3.1416; }
   vec3 T2 = T * cos(ang) + cross(up, T) * sin(ang);
   vec3 B2 = cross(up, T2);
+  // lean each plant a little off the surface normal, like real growth
+  up = normalize(up + T2 * (aRnd.y - 0.5) * 2.0 * uLean);
+  T2 = normalize(T2 - up * dot(T2, up));
+  B2 = cross(up, T2);
   float g = grow(aDelay) * segVis(aSeg) * scarMask(P, aRnd.w);
   if (uIsShed < 0.5) g *= snapRegrow(aRnd.w) * holeMask(P, 1.35);
   float size = mix(uSizeMin, uSizeMax, aRnd.y) * uScale * g;
   vec3 lp = position;
+  vec3 nl = normal;
   float h = clamp(lp.y, 0.0, 1.5);
   vec3 fall = vec3(0.0);
   if (uIsShed > 0.5) {
@@ -326,12 +335,15 @@ void main() {
     vec3 ax = normalize(vec3(aRnd.x - 0.5, aRnd.y - 0.5, aRnd.w - 0.5) + vec3(0.001));
     float ang = ts * (1.5 + aRnd.y * 3.5);
     lp = lp * cos(ang) + cross(ax, lp) * sin(ang) + ax * dot(ax, lp) * (1.0 - cos(ang));
+    nl = nl * cos(ang) + cross(ax, nl) * sin(ang) + ax * dot(ax, nl) * (1.0 - cos(ang));
     float heavy = mix(0.55, 1.0, aRnd.x);
     float drop = 0.5 * 4.5 * heavy * ts * ts / (1.0 + 0.6 * ts);   // gravity with a little air drag
     fall = vec3(sin(ts * 2.4 + aRnd.x * 20.0) * 0.3 * ts + (aRnd.y - 0.5) * 0.5 * ts, -drop, (aRnd.w - 0.5) * 0.3 * ts) * uScale;
     size *= 1.0 - smoothstep(1.9, 2.7, ts);
   }
-  vec3 world = P + fall + (T2 * lp.x + up * lp.y + B2 * lp.z) * size;
+  vec3 world = P + fall + (T2 * lp.x + up * lp.y + B2 * lp.z - up * uSink) * size;
+  vN = T2 * nl.x + up * nl.y + B2 * nl.z; vUp = surfN; vCol = aCol; vHt = aH;
+  vP = vec3(s * 2.5 + aSeg.x * 1.7, cos(th) * 1.3, sin(th) * 1.3 + aSeg.y * 0.9);
   // wind, plus the plants lagging behind when the hand moves
   vec3 sway = vec3(sin(uTime * 1.7 + P.x * 0.02 + aRnd.z * 6.0), cos(uTime * 1.3 + P.y * 0.02), 0.0) * 0.06;
   sway += vec3(-uVel, 0.0) * 0.05;
@@ -463,6 +475,42 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 
+
+// Lit plants: sun + sky + back light, light passing through thin leaves, darker deep in the cushion.
+const LIT_FS = /* glsl */`
+uniform float uCushion; uniform float uFloor; uniform float uThrough; uniform float uDrift; uniform float uExposure;
+uniform vec3 uGradeMul; uniform float uWarm;
+varying vec3 vCol; varying vec3 vN; varying vec3 vUp; varying vec3 vP; varying float vHt; varying vec4 vRnd;
+float h3(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+float n3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }
+void main() {
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 up = normalize(vUp);
+  if (dot(n, up) < -0.2) n = reflect(n, up);              // thin leaves: light the side facing out
+  n = normalize(mix(n, up, uCushion));
+  vec3 L = normalize(vec3(-0.45, 0.62, 0.65));
+  float ndl = dot(n, L);
+  float sun = max((ndl + 0.25) / 1.25, 0.0);
+  vec3 hemi = mix(vec3(0.22, 0.2, 0.13), vec3(0.62, 0.72, 0.85), n.y * 0.5 + 0.5);
+  float through = pow(max(-ndl, 0.0), 1.2) * uThrough;
+  float rim = pow(1.0 - clamp(n.z, 0.0, 1.0), 3.0);
+  float ao = mix(uFloor, 1.0, smoothstep(0.0, 0.85, vHt));
+  float drift = n3(vP * 1.7) * 0.65 + n3(vP * 4.1) * 0.35;
+  vec3 base = vCol * mix(vec3(0.78, 0.9, 0.72), vec3(1.18, 1.1, 0.82), mix(0.5, drift, uDrift)) * (0.9 + 0.2 * vRnd.z);
+  vec3 c = base * (hemi * 0.85 + vec3(1.0, 0.95, 0.84) * sun * 1.35) * ao;
+  c += base * vec3(0.85, 1.05, 0.45) * through * 0.55 * ao;
+  c += vec3(0.75, 0.88, 1.0) * rim * 0.22 * ao * base * 2.0;
+  c *= uExposure;
+  c = 1.0 - exp(-c * 1.25);
+  float lum = dot(c, vec3(0.3, 0.55, 0.15));
+  c = mix(c, vec3(lum) * vec3(1.45, 0.82, 0.38), uWarm);
+  c *= uGradeMul;
+  gl_FragColor = vec4(c, 1.0);
+}`;
+
 // ---------- geometry builders (local space: y = up from the hand surface, size 1) ----------
 
 function tuftGeometry(rand, blades = 5) {
@@ -564,8 +612,11 @@ function bodyGeometry() {
 function instanced(geo, inst) {
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(geo.pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(geo.uv, 2));
-  g.setIndex(geo.idx);
+  if (geo.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(geo.uv, 2));
+  if (geo.nrm) g.setAttribute('normal', new THREE.Float32BufferAttribute(geo.nrm, 3));
+  if (geo.col) g.setAttribute('aCol', new THREE.Float32BufferAttribute(geo.col, 3));
+  if (geo.h) g.setAttribute('aH', new THREE.Float32BufferAttribute(geo.h, 1));
+  if (geo.idx) g.setIndex(geo.idx);
   g.setAttribute('aSeg', new THREE.InstancedBufferAttribute(inst.seg, 3));
   if (inst.at) g.setAttribute('aAt', new THREE.InstancedBufferAttribute(inst.at, 2));
   if (inst.rnd) g.setAttribute('aRnd', new THREE.InstancedBufferAttribute(inst.rnd, 4));
@@ -574,19 +625,11 @@ function instanced(geo, inst) {
   return g;
 }
 
+// Looks: the moss bed colour under the plants plus a colour grade over the lit plants.
 export const SEASONS = {
-  Meadow: {
-    mossDark: 0x386a1c, mossLight: 0x86bd48, grassBase: 0x447a26, grassTip: 0xcfeb82, leaf: 0x72b63e,
-    fern: 0x6cbd3a, f0: 0xf7f5ea, f1: 0x7464f0, f2: 0xf1eec4,
-  },
-  Blossom: {
-    mossDark: 0x24501a, mossLight: 0x6aa83a, grassBase: 0x2a5a1e, grassTip: 0xb4dc6a, leaf: 0x5aa83a,
-    fern: 0x4a9a30, f0: 0xffd0e0, f1: 0xff8fbf, f2: 0xffffff,
-  },
-  Autumn: {
-    mossDark: 0x3e3212, mossLight: 0x9c7a26, grassBase: 0x4d3a14, grassTip: 0xe2b24a, leaf: 0xc4602a,
-    fern: 0xa8581c, f0: 0xff7a1a, f1: 0xb8321e, f2: 0xffd23f,
-  },
+  Meadow: { mossDark: 0x1f3a0e, mossLight: 0x45691e, grassTip: 0xb8d98a, leaf: 0x5f9a35, f0: 0xf3f2c4, f1: 0x7a6ee8, grade: [1, 1, 1], warm: 0 },
+  Autumn: { mossDark: 0x1a1104, mossLight: 0x3d2a0c, grassTip: 0xe2b24a, leaf: 0xc4602a, f0: 0xffd23f, f1: 0xb8321e, grade: [1.05, 0.98, 0.9], warm: 0.62 },
+  Frost: { mossDark: 0x0c1418, mossLight: 0x24343c, grassTip: 0xdff1ff, leaf: 0x9fc4d6, f0: 0xffffff, f1: 0xb9c8ff, grade: [0.86, 1.0, 1.18], warm: 0 },
 };
 
 export class Garden {
@@ -605,6 +648,7 @@ export class Garden {
       uJ: { value: this.joints }, uVis: { value: this.vis }, uScale: { value: 100 }, uPalmN: { value: new THREE.Vector3(0, 0, 1) },
       uTime: { value: 0 }, uAge: { value: 0 }, uFade: { value: 0 }, uVel: { value: new THREE.Vector2() },
       uSnapT: { value: -100 }, uIsShed: { value: 0 },
+      uExposure: { value: 1.05 }, uGradeMul: { value: new THREE.Vector3(1, 1, 1) }, uWarm: { value: 0 },
       uHole: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, uHoleA: { value: 0 },
       uScarJ: { value: new Float32Array(8) }, uScarOff: { value: Array.from({ length: 8 }, () => new THREE.Vector3()) },
       uScarR: { value: new Float32Array(8).fill(1) }, uScarT: { value: new Float32Array(8).fill(-100) },
@@ -638,28 +682,25 @@ export class Garden {
     };
     add(instanced(bodyGeometry(), body), BODY_VS, BODY_FS, {}, { side: THREE.FrontSide });
 
-    // grass tufts: several geometry variants so the clumps don't look stamped
+    // the cover: a dense cushion of star moss, several models so clumps don't look stamped
+    const lit = (o) => ({ uCushion: { value: 0.5 }, uFloor: { value: 0.12 }, uThrough: { value: 0.9 }, uDrift: { value: 1 }, uSink: { value: 0.12 }, uLean: { value: 0.25 }, ...o });
+    for (let v = 0; v < 4; v++) {
+      add(instanced(starMoss(600 + v * 17), scatter(info, q(C.moss / 4), rand)), PLANT_VS, LIT_FS,
+        lit({ ...sz(0.09, 0.145), uDroop: { value: 0.05 } }));
+    }
     for (let v = 0; v < 3; v++) {
-      add(instanced(tuftGeometry(rand, 6), scatter(info, q(C.grass), rand)), PLANT_VS, GRASS_FS,
-        { ...sz(0.05, 0.11), uDroop: { value: 0.15 } });
+      add(instanced(pompom(100 + v * 31), scatter(info, q(C.pompoms / 3), rand)), PLANT_VS, LIT_FS,
+        lit({ ...sz(0.12, 0.19), uCushion: { value: 0.15 }, uLean: { value: 0.45 }, uSink: { value: 0.05 } }));
+      add(instanced(buds(300 + v * 23), scatter(info, q(C.buds / 3), rand)), PLANT_VS, LIT_FS,
+        lit({ ...sz(0.1, 0.16), uCushion: { value: 0.15 }, uLean: { value: 0.4 }, uSink: { value: 0.05 } }));
     }
-    for (let v = 0; v < 2; v++) {
-      add(instanced(leafGeometry(rand), scatter(info, q(C.leaves), rand)), PLANT_VS, LEAF_FS,
-        { ...sz(0.045, 0.085), uDroop: { value: 0.1 } });
+    for (let v = 0; v < 4; v++) {
+      add(instanced(fern(900 + v * 13), scatter(info, q(C.ferns / 4), rand, { segFilter: (s) => s.kind === 'fern' })), PLANT_VS, LIT_FS,
+        lit({ uSizeMin: { value: 0.32 * skel.fernMul * k }, uSizeMax: { value: 0.55 * skel.fernMul * k }, uCushion: { value: 0.1 }, uLean: { value: 0.5 }, uDroop: { value: 0.25 }, uSink: { value: 0.02 } }));
+      add(instanced(sprig(1300 + v * 7), scatter(info, q(C.sprigs / 4), rand)), PLANT_VS, LIT_FS,
+        lit({ ...sz(0.17, 0.27), uCushion: { value: 0.15 }, uLean: { value: 0.5 }, uSink: { value: 0.02 } }));
     }
-    add(instanced(flowerGeometry(), scatter(info, q(C.flowers), rand)), PLANT_VS, FLOWER_FS,
-      { ...sz(0.045, 0.08), uFaceCam: { value: 0.45 } });
-    if (C.crown) {
-      const crown = { segFilter: (s) => s.kind === 'crown' };
-      add(instanced(flowerGeometry(), scatter(info, C.crown, rand, crown)), PLANT_VS, FLOWER_FS,
-        { uSizeMin: { value: 0.16 * skel.crownMul }, uSizeMax: { value: 0.26 * skel.crownMul }, uFaceCam: { value: 0.8 } });
-      add(instanced(leafGeometry(rand), scatter(info, C.crown, rand, crown)), PLANT_VS, LEAF_FS,
-        { uSizeMin: { value: 0.14 * skel.crownMul }, uSizeMax: { value: 0.22 * skel.crownMul }, uFaceCam: { value: 0.5 } });
-    }
-    // ferns spill off the edges and hang with gravity
-    add(instanced(fernGeometry(), scatter(info, q(C.ferns), rand, { segFilter: (s) => s.kind === 'fern' })), PLANT_VS, FERN_FS,
-      { uSizeMin: { value: 0.35 * skel.fernMul }, uSizeMax: { value: 0.6 * skel.fernMul }, uDroop: { value: 0.6 } });
-    add(instanced(bugGeometry(), scatter(info, C.bugs, rand, { segFilter: (s) => s.order >= 1 && s.order <= 2 })), PLANT_VS, BUG_FS,
+    if (C.bugs) add(instanced(bugGeometry(), scatter(info, C.bugs, rand, { segFilter: (s) => s.order >= 1 && s.order <= 2 })), PLANT_VS, BUG_FS,
       { ...sz(0.09, 0.11), uCrawl: { value: 1 } }, { side: THREE.FrontSide });
 
     this.tracked = false;
@@ -671,9 +712,11 @@ export class Garden {
   }
 
   setSeason(p) {
-    const set = (k, hex) => this.u[k].value.setHex(hex);
-    set('uMossDark', p.mossDark); set('uMossLight', p.mossLight); set('uGrassBase', p.grassBase); set('uGrassTip', p.grassTip);
-    set('uLeaf', p.leaf); set('uFern', p.fern); set('uF0', p.f0); set('uF1', p.f1); set('uF2', p.f2);
+    const set = (k, hex) => { if (hex !== undefined) this.u[k].value.setHex(hex); };
+    set('uMossDark', p.mossDark); set('uMossLight', p.mossLight); set('uGrassBase', p.mossLight); set('uGrassTip', p.grassTip);
+    set('uLeaf', p.leaf); set('uFern', p.leaf); set('uF0', p.f0); set('uF1', p.f1); set('uF2', p.f0);
+    this.u.uGradeMul.value.set(...p.grade);
+    this.u.uWarm.value = p.warm;
   }
 
   setQuality(f) {

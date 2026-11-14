@@ -32,7 +32,7 @@ addEventListener('resize', resize);
 resize();
 
 const lowEnd = /Android|iPhone|iPad/i.test(navigator.userAgent) && (navigator.hardwareConcurrency || 4) <= 4;
-const q0 = lowEnd ? 0.6 : 1;
+const q0 = params.has('q') ? Math.max(0.05, +params.get('q') || 1) : lowEnd ? 0.6 : 1;   // ?q= for testing
 const gardens = [new Garden(scene, HAND, 7, q0), new Garden(scene, HAND, 23, q0), new Garden(scene, FACE, 41, q0)];
 let faceOn = params.get('face') !== '0';
 const butterflies = new Butterflies(scene, 5);
