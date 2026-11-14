@@ -1,7 +1,7 @@
 // Garden ambience, all synthesised: a soft breeze, leaves rustling when hands move, birdsong now and
 // then, and a little shimmer when a garden starts to grow. Starts after the first tap (browser rule).
 
-let ctx = null, master = null, rustle = null, breeze = null, on = true, nextBird = 0;
+let ctx = null, noise = null, master = null, rustle = null, breeze = null, on = true, nextBird = 0;
 
 function noiseBuffer(c) {
   const b = c.createBuffer(1, c.sampleRate * 2, c.sampleRate), d = b.getChannelData(0);
@@ -19,6 +19,7 @@ export function unlock() {
   master.gain.value = on ? 0.9 : 0;
   master.connect(ctx.destination);
   const buf = noiseBuffer(ctx);
+  noise = buf;
   const loop = (freq, q, type) => {
     const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
@@ -74,4 +75,18 @@ export function tick(speed, gardenUp) {
     if (gardenUp || Math.random() < 0.3) birdsong(t);
     nextBird = t + 3 + Math.random() * 6;
   }
+}
+
+/** A leafy rustle burst: a clap (1) or a rub (smaller). */
+export function shake(amount = 1) {
+  if (!ctx || !on || !noise) return;
+  const t = ctx.currentTime, src = ctx.createBufferSource();
+  src.buffer = noise;
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400 + Math.random() * 1500; f.Q.value = 0.7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.5 * amount, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25 + amount * 0.5);
+  src.connect(f).connect(g).connect(master);
+  src.start(t, Math.random()); src.stop(t + 1);
 }

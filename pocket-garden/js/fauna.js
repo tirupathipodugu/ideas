@@ -30,12 +30,14 @@ void main() {
   if (d > 1.0) { if (p.x < 0.05 && abs(p.y) < 0.75) { gl_FragColor = vec4(vec3(0.06), 1.0); return; } discard; }
   vec3 base = vHue < 0.5 ? vec3(0.98, 0.52, 0.08) : vec3(0.35, 0.6, 1.0);
   vec3 c = base;
-  float edge = smoothstep(0.78, 0.84, d);
-  float veins = smoothstep(0.03, 0.0, abs(fract(atan(p.y, p.x + 0.05) * 2.2) - 0.5) - 0.47);
-  c = mix(c, vec3(0.05), max(edge, veins * 0.75 * smoothstep(0.15, 0.3, d)));
-  // white dots along the border
-  float dots = smoothstep(0.35, 0.2, abs(fract(atan(p.y - 0.0, p.x) * 6.0) - 0.5)) * smoothstep(0.76, 0.82, d) * smoothstep(0.96, 0.88, d);
-  c = mix(c, vec3(0.95), dots);
+  float edge = smoothstep(0.84, 0.9, d);
+  float ang = atan(p.y, p.x + 0.05);
+  float veins = smoothstep(0.035, 0.0, abs(fract(ang * 1.6) - 0.5) - 0.465) * smoothstep(0.2, 0.35, d) * (1.0 - edge);
+  c = mix(c, vec3(0.05), max(edge, veins * 0.8));
+  // a few white spots inside the black border
+  vec2 sp = vec2(fract(ang * 3.2) - 0.5, (d - 0.94) * 6.0);
+  c = mix(c, vec3(0.97), smoothstep(0.22, 0.12, length(sp)) * edge);
+  c = mix(c, base * 1.15, smoothstep(0.5, 0.0, d) * 0.25);
   c *= 0.35 + 0.75 * vShade;
   gl_FragColor = vec4(c, 1.0);
 }`;
@@ -91,7 +93,7 @@ export class Butterflies {
         if (!f.target || !live.includes(f.target.g) || f.timer <= 0) {
           const g = live[Math.floor(Math.random() * live.length)];
           if (!g) { f.state = 'leaving'; return; }
-          const j = [4, 8, 12, 16, 20, 6, 10, 14, 9, 5][Math.floor(Math.random() * 10)];
+          const j = g.perches[Math.floor(Math.random() * g.perches.length)];
           f.target = { g, j, off: new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.25 + Math.random() * 0.3, 0) };
           f.state = 'seek';
           f.timer = 4 + Math.random() * 5;
