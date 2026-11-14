@@ -44,3 +44,14 @@ body.demo #camera-label::after { content: ""; }
 #hint.show { opacity: 1; transform: translate(-50%, 0); }
 
 body.flash::after { content: ""; position: fixed; inset: 0; background: #fff; opacity: .7; z-index: 9; pointer-events: none; }
+
+.credit-intro { font-size: 14px !important; color: #cfdccb !important; margin: 4px 0 0 !important; }
+.credit-intro a, #credit { color: #c6f4ae; }
+#credit { position: fixed; z-index: 4; left: 50%; transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom)); padding: 8px 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap; max-width: calc(100% - 32px);
+  overflow: hidden; text-overflow: ellipsis;
+  background: rgba(10, 16, 12, .72); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, .16); display: none; }
+body.live #credit { display: block; }
+@media (max-width: 480px) { #credit { bottom: calc(92px + env(safe-area-inset-bottom)); } }

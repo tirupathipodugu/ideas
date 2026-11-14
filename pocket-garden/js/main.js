@@ -269,6 +269,7 @@ $('btn-snap').addEventListener('click', tap(async () => {
   g.drawImage(canvas, 0, 0, out.width, out.height);
   g.font = `600 ${15 * dpr}px system-ui, sans-serif`; g.fillStyle = 'rgba(255,255,255,.85)';
   g.fillText('Pocket Garden · tirupathipodugu.github.io/ideas/pocket-garden', 16 * dpr, out.height - 18 * dpr);
+  g.fillText('Thanks to Tiago Canzian (@tgcnzn), it’s his idea', 16 * dpr, out.height - 40 * dpr);
   document.body.classList.add('flash'); setTimeout(() => document.body.classList.remove('flash'), 180);
   out.toBlob((b) => b && saveImage(b, 'pocket-garden.png', 'Pocket Garden'), 'image/png');
 }));
