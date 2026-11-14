@@ -1,148 +1,102 @@
-// All sound is synthesised with WebAudio: rain hiss and patter, drips off the roof, water swishing past
-// the hull, a frog's croak and plop, wet paper scraping a wall, the drain gurgling, the thread snapping.
+// The forest stream, all synthesised with WebAudio: layered running water that swells in the rapids,
+// wind moving through the canopy, birds calling from both banks, and soft knocks when the boat hits a rock.
 
 export class Sound {
-  constructor() {
-    this.on = true;
-    this.ctx = null;
-    this.master = null;
-    this.timer = 0;
-  }
+  constructor() { this.on = true; this.ctx = null; this.rapid = 0; }
 
-  // Called from the first user gesture. Returns the AudioContext (also used by the mic analyser).
   unlock() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       const ctx = this.ctx = new AC();
+      // louder overall, through a gentle compressor and a limiter so phone speakers never clip
       this.master = ctx.createGain();
-      this.master.gain.value = this.on ? 1 : 0;
-      this.master.connect(ctx.destination);
-      const len = ctx.sampleRate * 2;
-      this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
-      const d = this.noise.getChannelData(0);
-      let b = 0;
-      for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b = 0.97 * b + 0.03 * w; d[i] = w * 0.6 + b * 2.2; }
-      this.beds();
-      this.timer = setInterval(() => this.patter(), 60);
+      this.master.gain.value = this.on ? 1.9 : 0;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -20; comp.knee.value = 14; comp.ratio.value = 4; comp.attack.value = 0.01; comp.release.value = 0.3;
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -4; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
+      const post = ctx.createGain(); post.gain.value = 1.15;
+      this.master.connect(comp).connect(lim).connect(post).connect(ctx.destination);
+      const len = ctx.sampleRate * 3;
+      this.noise = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = this.noise.getChannelData(ch); let b = 0;
+        for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b = 0.985 * b + 0.015 * w; d[i] = w * 0.5 + b * 3; }
+      }
+      this.water = [this.bed('lowpass', 380, 0.7, 0.22), this.bed('bandpass', 1100, 0.9, 0.11), this.bed('bandpass', 3200, 1.2, 0.05), this.bed('highpass', 6500, 0.7, 0.014)];
+      this.wind = this.bed('bandpass', 700, 0.5, 0.0);
+      this.timer = setInterval(() => this.tick(), 120);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
   }
 
-  setOn(on) {
-    this.on = on;
-    if (this.master) this.master.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.05);
-  }
+  setOn(on) { this.on = on; if (this.master) this.master.gain.setTargetAtTime(on ? 1.9 : 0, this.ctx.currentTime, 0.08); }
 
-  loop(filterType, freq, q, gain) {
-    const ctx = this.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise; src.loop = true;
-    src.playbackRate.value = 0.9 + Math.random() * 0.2;
-    const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+  bed(type, freq, q, gain) {
+    const ctx = this.ctx, src = ctx.createBufferSource();
+    src.buffer = this.noise; src.loop = true; src.playbackRate.value = 0.85 + Math.random() * 0.3;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
     const g = ctx.createGain(); g.gain.value = gain;
     src.connect(f).connect(g).connect(this.master);
-    src.start(ctx.currentTime + Math.random() * 0.5);
-    return { f, g };
+    src.start(ctx.currentTime + Math.random());
+    return { f, g, base: gain, freq };
   }
 
-  beds() {
-    this.loop('lowpass', 900, 0.5, 0.05);           // soft roar of rain on the courtyard
-    this.loop('bandpass', 5200, 0.6, 0.022);        // fine hiss of drops
-    this.swish = this.loop('bandpass', 650, 1.1, 0); // water past the hull
-    this.gurgle = this.loop('lowpass', 260, 4, 0);  // the drain
+  setRapid(r) { this.rapid = r; }
+
+  tick() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime, r = this.rapid;
+    // the water gurgles: each band wanders, and everything grows in the rapids
+    this.water.forEach((b, i) => {
+      b.g.gain.setTargetAtTime(b.base * (0.7 + Math.random() * 0.6) * (1 + r * (1.5 + i * 0.6)), now, 0.15);
+      b.f.frequency.setTargetAtTime(b.freq * (0.85 + Math.random() * 0.3), now, 0.2);
+    });
+    this.wind.g.gain.setTargetAtTime(0.012 + 0.03 * (0.5 + 0.5 * Math.sin(now * 0.13)) * Math.random(), now, 1.2);
+    for (let i = 0; i < 2; i++) if (Math.random() < 0.35) this.drip(now + Math.random() * 0.12, r);
+    if (Math.random() < 0.05) this.bird(now + Math.random() * 0.1);
   }
 
-  // Rain on water: many tiny high plinks, a few big drips off the roof with the rising "bloop" of a real drop.
-  patter() {
+  // a bubble in the water: a short rising sine
+  drip(at, r) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain(), p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const f0 = 350 + Math.random() * 900;
+    o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f0 * (1.6 + Math.random()), at + 0.05);
+    const v = 0.006 + Math.random() * 0.012 * (1 + r * 2);
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(v, at + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.07);
+    let n = o.connect(g);
+    if (p) { p.pan.value = Math.random() * 1.6 - 0.8; n = n.connect(p); }
+    n.connect(this.master); o.start(at); o.stop(at + 0.09);
+  }
+
+  // birdsong: a few species-like patterns built from fast sine sweeps and trills
+  bird(at) {
+    const ctx = this.ctx, kind = Math.floor(Math.random() * 3);
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const out = ctx.createGain(); out.gain.value = 0.09 + Math.random() * 0.08;
+    if (pan) { pan.pan.value = Math.random() * 1.8 - 0.9; out.connect(pan).connect(this.master); } else out.connect(this.master);
+    const note = (t, f0, f1, len, vol = 1) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + len);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(g).connect(out); o.start(t); o.stop(t + len + 0.02);
+    };
+    const base = 2200 + Math.random() * 2200;
+    if (kind === 0) { const n = 3 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) note(at + i * 0.13, base * 1.3, base * 0.8, 0.09); }
+    else if (kind === 1) { note(at, base, base * 1.5, 0.12); note(at + 0.16, base * 1.5, base * 0.9, 0.18); note(at + 0.4, base * 1.2, base * 1.25, 0.25, 0.7); }
+    else { for (let i = 0; i < 9; i++) note(at + i * 0.045, base * (1 + (i % 2) * 0.12), base * (1.05 + (i % 2) * 0.1), 0.035, 0.6); note(at + 0.45, base * 0.8, base * 1.4, 0.2); }
+  }
+
+  knock(v) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const ctx = this.ctx, now = ctx.currentTime;
-    const n = Math.floor(Math.random() * 4);
-    for (let i = 0; i < n; i++) this.drop(now + Math.random() * 0.06, 1800 + Math.random() * 3200, 0.004 + Math.random() * 0.01, 0.012 + Math.random() * 0.02, 1.25);
-    if (Math.random() < 0.06) this.drop(now + Math.random() * 0.06, 500 + Math.random() * 500, 0.02 + Math.random() * 0.025, 0.05, 2.2);
-    if (this.gurgle) {
-      const v = this.drainLevel || 0;
-      this.gurgle.g.gain.setTargetAtTime(v * (0.12 + Math.random() * 0.16), now, 0.08);
-      this.gurgle.f.frequency.setTargetAtTime(180 + Math.random() * 220, now, 0.05);
-    }
-  }
-
-  drop(at, f0, vol, len, rise) {
-    const ctx = this.ctx;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.setValueAtTime(f0, at);
-    o.frequency.exponentialRampToValueAtTime(f0 * rise, at + len);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(vol, at + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + len);
-    o.connect(g).connect(this.master);
-    o.start(at); o.stop(at + len + 0.02);
-  }
-
-  burst(at, len, type, freq, q, vol) {
-    const ctx = this.ctx;
     const src = ctx.createBufferSource(); src.buffer = this.noise;
-    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900 + Math.random() * 400; f.Q.value = 1.4;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(vol, at + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + len);
-    src.connect(f).connect(g).connect(this.master);
-    src.start(at, Math.random() * 1.5); src.stop(at + len + 0.02);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.12 * v + 0.02, now + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    src.connect(f).connect(g).connect(this.master); src.start(now, Math.random()); src.stop(now + 0.14);
+    this.drip(now + 0.02, 1);
   }
-
-  setMotion(speed, drain) {
-    if (!this.ctx) return;
-    this.swish.g.gain.setTargetAtTime(Math.min(0.09, speed * 0.14), this.ctx.currentTime, 0.12);
-    this.swish.f.frequency.setTargetAtTime(500 + speed * 600, this.ctx.currentTime, 0.2);
-    this.drainLevel = drain;
-  }
-
-  // Wet paper brushing a wall or a leaf.
-  scrape(v = 1) {
-    if (!this.ready()) return;
-    const now = this.ctx.currentTime;
-    for (let i = 0; i < 5; i++) this.burst(now + i * 0.022 + Math.random() * 0.01, 0.03, 'highpass', 2200 + Math.random() * 1500, 0.7, 0.05 * v);
-    this.burst(now, 0.12, 'bandpass', 500, 1, 0.06 * v);
-  }
-
-  plop() {
-    if (!this.ready()) return;
-    const now = this.ctx.currentTime;
-    this.drop(now, 280, 0.22, 0.09, 4);
-    this.burst(now, 0.16, 'lowpass', 700, 0.8, 0.16);
-    this.burst(now + 0.05, 0.25, 'bandpass', 2400, 1.5, 0.03);
-  }
-
-  croak() {
-    if (!this.ready()) return;
-    const ctx = this.ctx, now = ctx.currentTime;
-    for (let k = 0; k < 2; k++) {
-      const at = now + k * 0.32;
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(95, at); o.frequency.linearRampToValueAtTime(80, at + 0.22);
-      const am = ctx.createOscillator(); am.frequency.value = 28;
-      const amg = ctx.createGain(); amg.gain.value = 0.5;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.06, at + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.24);
-      const vca = ctx.createGain(); vca.gain.value = 0.5;
-      am.connect(amg).connect(vca.gain);
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 520; f.Q.value = 2.5;
-      o.connect(vca).connect(f).connect(g).connect(this.master);
-      o.start(at); am.start(at); o.stop(at + 0.26); am.stop(at + 0.26);
-    }
-  }
-
-  finish() {
-    if (!this.ready()) return;
-    const ctx = this.ctx, now = ctx.currentTime;
-    this.burst(now, 0.03, 'highpass', 3000, 0.7, 0.12);
-    [[587, 0.05], [880, 0.2], [1175, 0.35]].forEach(([f, d]) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, now + d); g.gain.exponentialRampToValueAtTime(0.05, now + d + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + d + 1.8);
-      o.connect(g).connect(this.master); o.start(now + d); o.stop(now + d + 1.9);
-    });
-  }
-
-  ready() { return this.ctx && this.ctx.state === 'running'; }
 }
