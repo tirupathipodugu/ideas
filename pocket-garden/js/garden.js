@@ -154,10 +154,10 @@ export const FACE = {
   crownMul: 1,
   canon: faceCanon,
   segs: [
-    ...FACE_U.map((u, k) => [5 + k * 2, 6 + k * 2, 0.17, Math.abs(k - 2), 3]),
-    [15, 16, 0.27, 2, 1, 'fern'],                                        // neck
+    // the face itself is covered by FaceGarden (face.js) on the real face mesh; this is the neck
+    [15, 16, 0.27, 1, 1, 'fern'],                                        // neck
   ],
-  counts: { moss: 2600, pompoms: 100, buds: 80, ferns: 16, sprigs: 36, bugs: 0 },
+  counts: { moss: 650, pompoms: 14, buds: 12, ferns: 8, sprigs: 10, bugs: 0 },
   unit: (J) => Math.max(1, J[0].distanceTo(J[1])),
   frameN: (J, out) => out.set(0, 0, 1),
   virtuals(J, V) {
@@ -284,10 +284,11 @@ float holeMask(vec3 P, float grow) {
   return keep;
 }
 // Finger snap: the live garden is hidden and regrows; a frozen copy (uIsShed) falls away.
-uniform float uSnapT; uniform float uIsShed;
+uniform float uSnapT; uniform float uIsShed; uniform float uRegrowK;
 float snapRegrow(float rnd) {
-  float since = uTime - uSnapT;
-  if (since < 0.0 || since > 6.0) return 1.0;
+  float since = (uTime - uSnapT) / uRegrowK;
+  if (since < -0.5 || since > 6.0) return 1.0;
+  since = max(since, 0.0);
   return smoothstep(1.3 + rnd * 1.3, 2.1 + rnd * 1.6, since);
 }
 float grow(float delay) { return smoothstep(0.0, 1.0, clamp((uAge - delay) / 0.75, 0.0, 1.0)) * uFade; }
@@ -477,7 +478,7 @@ void main() {
 
 
 // Lit plants: sun + sky + back light, light passing through thin leaves, darker deep in the cushion.
-const LIT_FS = /* glsl */`
+export const LIT_FS = /* glsl */`
 uniform float uCushion; uniform float uFloor; uniform float uThrough; uniform float uDrift; uniform float uExposure;
 uniform vec3 uGradeMul; uniform float uWarm;
 varying vec3 vCol; varying vec3 vN; varying vec3 vUp; varying vec3 vP; varying float vHt; varying vec4 vRnd;
@@ -647,7 +648,7 @@ export class Garden {
     this.u = {
       uJ: { value: this.joints }, uVis: { value: this.vis }, uScale: { value: 100 }, uPalmN: { value: new THREE.Vector3(0, 0, 1) },
       uTime: { value: 0 }, uAge: { value: 0 }, uFade: { value: 0 }, uVel: { value: new THREE.Vector2() },
-      uSnapT: { value: -100 }, uIsShed: { value: 0 },
+      uSnapT: { value: -100 }, uIsShed: { value: 0 }, uRegrowK: { value: 1 },
       uExposure: { value: 1.05 }, uGradeMul: { value: new THREE.Vector3(1, 1, 1) }, uWarm: { value: 0 },
       uHole: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, uHoleA: { value: 0 },
       uScarJ: { value: new Float32Array(8) }, uScarOff: { value: Array.from({ length: 8 }, () => new THREE.Vector3()) },
@@ -784,8 +785,9 @@ export class Garden {
   }
 
   /** Finger snap: everything falls off where it is, the hand shows, then the garden regrows. */
-  shed(t) {
+  shed(t, slow = 1) {
     if (!this.tracked) return false;
+    this.u.uRegrowK.value = slow;
     if (!this.shedGroup) {
       this.shedGroup = new THREE.Group();
       this.group.parent.add(this.shedGroup);
@@ -815,7 +817,7 @@ export class Garden {
     this.su.uPalmN.value.copy(this.u.uPalmN.value);
     this.u.uSnapT.value = t;
     this.shedGroup.visible = true;
-    this.shedUntil = t + 3;
+    this.shedUntil = t + 3.5;
     return true;
   }
 

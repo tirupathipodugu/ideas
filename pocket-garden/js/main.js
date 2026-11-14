@@ -5,6 +5,7 @@ import * as THREE from '../vendor/three/three.module.js';
 import { Garden, HAND, FACE, SEASONS, CANON } from './garden.js';
 import { Butterflies } from './fauna.js';
 import { Falling } from './falling.js';
+import { FaceGarden } from './face.js';
 import { createTouch } from './touch.js';
 import * as sound from './sound.js';
 import { saveImage } from '../../shared/share-x.js';
@@ -14,7 +15,7 @@ const video = $('video'), canvas = $('stage'), intro = $('intro'), hint = $('hin
 const params = new URLSearchParams(location.search);
 
 // ---------- renderer ----------
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.setClearColor(0x000000, 0);
 const scene = new THREE.Scene();
@@ -37,13 +38,14 @@ const gardens = [new Garden(scene, HAND, 7, q0), new Garden(scene, HAND, 23, q0)
 let faceOn = params.get('face') !== '0';
 const butterflies = new Butterflies(scene, 5);
 const falling = new Falling(scene);
-const touch = createTouch(gardens, falling, sound);
+const touchExtra = [];
+const touch = createTouch(gardens, falling, sound, touchExtra);
 const seasonNames = Object.keys(SEASONS);
 let season = 0;
 gardens.forEach((g) => g.setSeason(SEASONS[seasonNames[season]]));
 
 // ---------- source: camera, a test video (?video=), or the demo hand ----------
-let mode = 'idle', facing = 'user', mirrored = true, stream = null, landmarker = null, facer = null;
+let mode = 'idle', facing = 'user', mirrored = true, stream = null, landmarker = null, facer = null, faceGarden = null, facePts = null;
 
 async function loadLandmarker() {
   if (landmarker) return landmarker;
@@ -62,6 +64,8 @@ async function loadLandmarker() {
     minFaceDetectionConfidence: 0.5, minFacePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
   });
   try { facer = await makeFace('GPU'); } catch { try { facer = await makeFace('CPU'); } catch (e) { console.warn('face tracking unavailable', e); } }
+  faceGarden = new FaceGarden(scene, vision, gardens[0].u, q0);
+  touchExtra.push(faceGarden);
   return landmarker;
 }
 
@@ -149,10 +153,9 @@ function detect() {
     const lm = facer.detectForVideo(video, ts + 0.5).faceLandmarks?.[0];
     // left cheek, right cheek, forehead top, chin, nose tip
     if (lm) {
-      hands[2] = filter(2, toWorld([lm[234], lm[454], lm[10], lm[152], lm[1]]));
-      // eyes and the open mouth stay clear
-      gardens[2].setHoles(toWorld([33, 133, 159, 145, 263, 362, 386, 374, 78, 308, 13, 14].map((i) => lm[i])));
-    } else { smooth[2] = null; gardens[2].setHoles(null); }
+      hands[2] = filter(2, toWorld([lm[234], lm[454], lm[10], lm[152], lm[1]]));   // neck
+      facePts = toWorld(lm);                                                         // the whole face mesh
+    } else { smooth[2] = null; facePts = null; }
   }
 }
 
@@ -199,6 +202,7 @@ function frame(now) {
     if (g.tracked && !wasUp[i] && g.u.uAge.value < 0.1) sound.bloom();
     wasUp[i] = g.tracked;
   });
+  faceGarden?.update(mode === 'camera' && faceOn ? facePts : null, t, dt);
   touch.update(t, dt);
   falling.update(dt, -H);
   butterflies.update(gardens, t, dt, { w: W, h: H });
@@ -275,6 +279,6 @@ $('btn-snap').addEventListener('click', tap(async () => {
 }));
 
 // test hook for headless checks
-window.garden = { gardens, butterflies, touch, falling, startDemo, get hands() { return hands; }, get mode() { return mode; } };
+window.garden = { grab: () => { renderer.render(scene, camera); return canvas.toDataURL('image/png'); }, gardens, butterflies, touch, falling, startDemo, get hands() { return hands; }, get mode() { return mode; } };
 if (params.has('demo')) { intro.hidden = true; startDemo(); }
 if (params.get('video')) { intro.hidden = true; startCamera(); }

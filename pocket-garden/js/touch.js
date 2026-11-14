@@ -11,7 +11,7 @@ function segDist2D(p, a, b) {
   return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
 }
 
-export function createTouch(gardens, falling, sound) {
+export function createTouch(gardens, falling, sound, extra = []) {
   const prev = new Map();
   const cool = new Map();
   const contact = new Map();
@@ -25,14 +25,12 @@ export function createTouch(gardens, falling, sound) {
   };
 
   const log = [];
-  function clap(t, hands) {
+  function clap(t) {
     lastClap = t;
     log.push(['clap', +t.toFixed(2)]);
-    for (const g of hands) {
-      const unit = g.u.uScale.value, c = palmCenter(g);
-      g.addScar(c, unit * 1.45, t);
-      falling.burst(c, unit * 0.9, 80, unit, new THREE.Vector2(), g.u);
-    }
+    // everything lets go: both hands, the neck and the face; it all grows back slowly
+    for (const g of gardens) if (g.shed(t, 3.2)) falling.burst(g === gardens[2] ? g.joints[15] : palmCenter(g), g.u.uScale.value * 0.7, 26, g.u.uScale.value, new THREE.Vector2(), g.u, true);
+    extra.forEach((g) => g?.shed(t, 3.2));
     sound.shake(1);
   }
 
@@ -64,7 +62,7 @@ export function createTouch(gardens, falling, sound) {
       const d = palmCenter(L).distanceTo(palmCenter(R)) / unit;
       const closing = clapD === null ? 0 : (clapD - d) / dt;
       clapD = d;
-      if (d < 0.95 && closing > 2.5 && t - lastClap > 0.7) clap(t, hands);
+      if (d < 0.95 && closing > 2.5 && t - lastClap > 2.5) clap(t);
     } else clapD = null;
 
     // finger snap: thumb and middle finger pinched, then the middle finger flicks into the palm
@@ -127,7 +125,7 @@ export function createTouch(gardens, falling, sound) {
   return {
     update, log,
     // test hooks
-    clap: (t) => clap(t, gardens.slice(0, 2).filter((g) => g.tracked)),
+    clap: (t) => clap(t),
     snap: (gi, t) => snap(t, gardens[gi]),
     poke: (gi, x, y, t) => { const g = gardens[gi]; const u = g.u.uScale.value * (gi === 2 ? 0.42 : 0.6); hit(g, new THREE.Vector3(x, y, 0), u, g.u.uScale.value, new THREE.Vector2(), t, 'test'); },
   };
