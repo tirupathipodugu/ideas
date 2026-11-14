@@ -1,10 +1,9 @@
-// Pocket Garden: hold up your hands and a garden grows on them.
-// Camera -> MediaPipe Hand Landmarker (2 hands) -> smoothed joints in screen pixels -> HandGarden shaders.
+// Pocket Garden: a garden grows on your hands, face and neck.
+// Camera -> MediaPipe Hand Landmarker (2 hands) + Face Landmarker -> smoothed points in screen pixels -> Garden shaders.
 
 import * as THREE from '../vendor/three/three.module.js';
-import { Garden, HAND, BODY, SEASONS, CANON } from './garden.js';
+import { Garden, HAND, FACE, SEASONS, CANON } from './garden.js';
 import { Butterflies } from './fauna.js';
-import { Silhouette } from './silhouette.js';
 import { Falling } from './falling.js';
 import { createTouch } from './touch.js';
 import * as sound from './sound.js';
@@ -34,11 +33,9 @@ resize();
 
 const lowEnd = /Android|iPhone|iPad/i.test(navigator.userAgent) && (navigator.hardwareConcurrency || 4) <= 4;
 const q0 = lowEnd ? 0.6 : 1;
-const gardens = [new Garden(scene, HAND, 7, q0), new Garden(scene, HAND, 23, q0), new Garden(scene, BODY, 41, q0)];
-let bodyOn = params.get('body') !== '0';
+const gardens = [new Garden(scene, HAND, 7, q0), new Garden(scene, HAND, 23, q0), new Garden(scene, FACE, 41, q0)];
+let faceOn = params.get('face') !== '0';
 const butterflies = new Butterflies(scene, 5);
-const silhouette = new Silhouette(scene, gardens[2].u);
-let rect = { ox: 0, oy: 0, dw: 1, dh: 1 };
 const falling = new Falling(scene);
 const touch = createTouch(gardens, falling, sound);
 const seasonNames = Object.keys(SEASONS);
@@ -46,7 +43,7 @@ let season = 0;
 gardens.forEach((g) => g.setSeason(SEASONS[seasonNames[season]]));
 
 // ---------- source: camera, a test video (?video=), or the demo hand ----------
-let mode = 'idle', facing = 'user', mirrored = true, stream = null, landmarker = null, poser = null;
+let mode = 'idle', facing = 'user', mirrored = true, stream = null, landmarker = null, facer = null;
 
 async function loadLandmarker() {
   if (landmarker) return landmarker;
@@ -59,13 +56,12 @@ async function loadLandmarker() {
     minHandDetectionConfidence: 0.55, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
   });
   try { landmarker = await make('GPU'); } catch { landmarker = await make('CPU'); }
-  const makePose = (delegate) => vision.PoseLandmarker.createFromOptions(fileset, {
-    baseOptions: { modelAssetPath: BASE + 'pose_landmarker_lite.task', delegate },
-    runningMode: 'VIDEO', numPoses: 1,
-    minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
-    outputSegmentationMasks: true,
+  const makeFace = (delegate) => vision.FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: BASE + 'face_landmarker.task', delegate },
+    runningMode: 'VIDEO', numFaces: 1,
+    minFaceDetectionConfidence: 0.5, minFacePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
   });
-  try { poser = await makePose('GPU'); } catch { try { poser = await makePose('CPU'); } catch (e) { console.warn('pose unavailable', e); } }
+  try { facer = await makeFace('GPU'); } catch { try { facer = await makeFace('CPU'); } catch (e) { console.warn('face tracking unavailable', e); } }
   return landmarker;
 }
 
@@ -88,9 +84,8 @@ async function startCamera() {
     await loadLandmarker();
     mode = 'camera';
     $('camera-label').textContent = 'Flip';
-    BODY.showHead = false;
     document.body.classList.add('live');
-    setHint(bodyOn ? 'Step back so the camera sees you' : 'Hold up your hand', true);
+    setHint('Hold up your hands', true);
   } catch (err) {
     console.error(err);
     setHint('Camera blocked. Allow camera access, or try the demo.', true);
@@ -104,7 +99,6 @@ function startDemo() {
   video.srcObject = null;
   document.body.classList.add('live', 'demo');
   $('camera-label').textContent = 'Camera';
-  BODY.showHead = true;
   setHint('Demo · tap Start camera to use yours', true);
 }
 
@@ -117,16 +111,15 @@ function setHint(text, show) {
 
 // ---------- landmarks -> world ----------
 const smooth = [null, null, null];
-function toWorld(lm, useVis = false) {
+function toWorld(lm) {
   const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
   const s = Math.max(W / vw, H / vh), dw = vw * s, dh = vh * s, ox = (W - dw) / 2, oy = (H - dh) / 2;
-  rect = { ox, oy, dw, dh };
-  return lm.map((p) => [ox + (mirrored ? 1 - p.x : p.x) * dw, -(oy + p.y * dh), -p.z * dw, useVis ? (p.visibility ?? 1) : 1]);
+  return lm.map((p) => [ox + (mirrored ? 1 - p.x : p.x) * dw, -(oy + p.y * dh), -p.z * dw, 1]);
 }
 function filter(i, pts) {
   const prev = smooth[i];
   if (!prev) return (smooth[i] = pts.map((p) => p.slice()));
-  const [ra, rb] = pts.length > 21 ? [11, 12] : [0, 9];
+  const [ra, rb] = pts.length === 21 ? [0, 9] : [0, 1];
   const scale = Math.hypot(pts[rb][0] - pts[ra][0], pts[rb][1] - pts[ra][1]) || 100;
   for (let k = 0; k < pts.length; k++) {
     prev[k][3] = pts[k][3];
@@ -152,15 +145,14 @@ function detect() {
   });
   hands = next.map((p, i) => (p ? filter(i, p) : ((smooth[i] = null), null)));
   hands[2] = null;
-  if (bodyOn && poser) {
-    const pr = poser.detectForVideo(video, ts + 0.5);
-    const lm = pr.landmarks?.[0];
-    const masks = pr.segmentationMasks || [];
-    if (lm && masks[0] && frameNo++ % (lowEnd ? 2 : 1) === 0) silhouette.setMask(masks[0]);
-    for (const m of masks) m.close();
-    // need at least the shoulders to dress a body
-    if (lm && (lm[11].visibility ?? 1) > 0.5 && (lm[12].visibility ?? 1) > 0.5) hands[2] = filter(2, toWorld(lm, true));
-    else smooth[2] = null;
+  if (faceOn && facer) {
+    const lm = facer.detectForVideo(video, ts + 0.5).faceLandmarks?.[0];
+    // left cheek, right cheek, forehead top, chin, nose tip
+    if (lm) {
+      hands[2] = filter(2, toWorld([lm[234], lm[454], lm[10], lm[152], lm[1]]));
+      // eyes and the open mouth stay clear
+      gardens[2].setHoles(toWorld([33, 133, 159, 145, 263, 362, 386, 374, 78, 308, 13, 14].map((i) => lm[i])));
+    } else { smooth[2] = null; gardens[2].setHoles(null); }
   }
 }
 
@@ -192,28 +184,6 @@ function demoHand(t, side) {
   });
 }
 
-// ---------- the demo body: a figure that sways and waves ----------
-function demoBody(t) {
-  const scale = Math.min(W * 0.32, H * 0.2);
-  const cx = W / 2 + Math.sin(t * 0.5) * W * 0.03, cy = H * 0.5;
-  const pts = [];
-  for (let i = 0; i < 33; i++) {
-    const [x, y] = BODY.canon(i);
-    pts.push([x, y]);
-  }
-  // wave: rotate each arm around its shoulder, elbows bending
-  const arm = (sh, el, wr, hand, sign, phase) => {
-    const up = 0.9 + Math.sin(t * 1.3 + phase) * 0.9;
-    const S = pts[sh], ang1 = sign * up, ang2 = sign * (up * 0.6 + Math.sin(t * 2.6 + phase) * 0.4);
-    const rot = (p, o, a) => { const dx = p[0] - o[0], dy = p[1] - o[1]; return [o[0] + dx * Math.cos(a) - dy * Math.sin(a), o[1] + dx * Math.sin(a) + dy * Math.cos(a)]; };
-    pts[el] = rot(pts[el], S, ang1);
-    for (const h of [wr, ...hand]) pts[h] = rot(rot(pts[h], S, ang1), pts[el], ang2 - ang1 * 0.2);
-  };
-  arm(11, 13, 15, [17, 19, 21], 1, 0);
-  arm(12, 14, 16, [18, 20, 22], -1, 1.7);
-  return pts.map(([x, y]) => [cx + x * scale, -(cy + y * scale), 0, 1]);
-}
-
 // ---------- loop ----------
 let last = performance.now(), frames = 0, slowFrames = 0, quality = lowEnd ? 0.6 : 1, liveSince = 0, hintShownAt = 0;
 let wasUp = [false, false];
@@ -222,7 +192,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const t = now / 1000;
   if (mode === 'camera') detect();
-  if (mode === 'demo') hands = bodyOn ? [null, null, demoBody(t)] : [demoHand(t, 0), demoHand(t, 1), null];
+  if (mode === 'demo') hands = [demoHand(t, 0), demoHand(t, 1), null];
   if (mode === 'idle') hands = [null, null, null];
   gardens.forEach((g, i) => {
     g.update(hands[i], t, dt);
@@ -232,13 +202,12 @@ function frame(now) {
   touch.update(t, dt);
   falling.update(dt, -H);
   butterflies.update(gardens, t, dt, { w: W, h: H });
-  silhouette.update(rect, mirrored, gardens[2], mode === 'camera' && bodyOn, t);
   const anyUp = gardens.some((g) => g.tracked);
   sound.tick(Math.max(...gardens.map((g) => g.speed)), anyUp);
   if (mode === 'camera') {
     if (anyUp) { hintShownAt = 0; if (hint.classList.contains('show')) setHint(hint.textContent, false); }
     else if (!hintShownAt) hintShownAt = t;
-    else if (t - hintShownAt > 1.5) setHint(bodyOn ? 'Step back so the camera sees you' : 'Hold up your hand', true);
+    else if (t - hintShownAt > 1.5) setHint('Hold up your hands', true);
   }
   // adapt plant density to the device once, after a few seconds of real work
   if (mode !== 'idle') {
@@ -262,10 +231,9 @@ $('btn-camera').addEventListener('click', tap(() => {
   facing = facing === 'user' ? 'environment' : 'user';
   startCamera();
 }));
-$('btn-body').addEventListener('click', tap(() => {
-  bodyOn = !bodyOn;
-  $('body-label').textContent = bodyOn ? 'Body' : 'Hands';
-  $('body-icon').textContent = bodyOn ? '🧍' : '✋';
+$('btn-face').addEventListener('click', tap(() => {
+  faceOn = !faceOn;
+  $('face-label').textContent = faceOn ? 'Face on' : 'Face off';
 }));
 $('btn-season').addEventListener('click', tap(() => {
   season = (season + 1) % seasonNames.length;
@@ -306,6 +274,6 @@ $('btn-snap').addEventListener('click', tap(async () => {
 }));
 
 // test hook for headless checks
-window.garden = { gardens, butterflies, silhouette, touch, falling, startDemo, get hands() { return hands; }, get mode() { return mode; } };
+window.garden = { gardens, butterflies, touch, falling, startDemo, get hands() { return hands; }, get mode() { return mode; } };
 if (params.has('demo')) { intro.hidden = true; startDemo(); }
 if (params.get('video')) { intro.hidden = true; startCamera(); }

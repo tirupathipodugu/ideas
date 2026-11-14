@@ -36,12 +36,13 @@ export const HAND = {
     [13, 14, 0.11, 1, 0], [14, 15, 0.10, 2, 0], [15, 16, 0.095, 3, 1],
     [17, 18, 0.10, 1, 0], [18, 19, 0.09, 2, 0], [19, 20, 0.085, 3, 1],
   ],
-  counts: { grass: 2400, leaves: 1400, flowers: 340, crown: 0, ferns: 16, bugs: 3 },
+  counts: { grass: 1500, leaves: 900, flowers: 240, crown: 0, ferns: 14, bugs: 3 },
   // unit length = palm (wrist -> middle knuckle)
   unit: (J) => J[0].distanceTo(J[9]),
   frameN: (J, out) => out.crossVectors(J[5].clone().sub(J[0]), J[17].clone().sub(J[0])).normalize(),
   virtuals(J, V) { J[21].copy(J[0]).sub(J[9]).multiplyScalar(0.22).add(J[0]); V[21] = V[0]; },
   perches: [4, 8, 12, 16, 20, 6, 10, 14, 9, 5],
+  anchor: 9,
 };
 
 // Body, from MediaPipe Pose's 33 points. Unit length = shoulder width. The face stays clear; a ring of
@@ -126,6 +127,58 @@ export const BODY = {
     }
   },
   perches: [11, 12, 13, 14, 15, 16, 46, 45, 47, 25, 26],
+  anchor: 33,
+};
+
+// Face and neck, from 5 Face Landmarker points: 0 left cheek (234), 1 right cheek (454), 2 forehead top (10),
+// 3 chin (152), 4 nose tip (1). Five vertical strips fill the face oval; one capsule makes the neck.
+// Unit length = face width.
+const FACE_U = [-0.72, -0.36, 0, 0.36, 0.72];
+function faceCanon(i) {
+  if (i === 0) return [-0.5, 0];
+  if (i === 1) return [0.5, 0];
+  if (i === 2) return [0, -0.62];
+  if (i === 3) return [0, 0.62];
+  if (i === 4) return [0, 0];
+  if (i >= 5 && i <= 14) {
+    const k = (i - 5) >> 1, top = (i - 5) % 2 === 0, u = FACE_U[k], h = Math.sqrt(1 - u * u) * 0.56;
+    return [u * 0.5, top ? -h : h];
+  }
+  return i === 15 ? [0, 0.6] : [0, 1.0];
+}
+export const FACE = {
+  nj: 17,
+  sizeMul: 1.1,
+  fernMul: 0.8,
+  crownMul: 1,
+  canon: faceCanon,
+  segs: [
+    ...FACE_U.map((u, k) => [5 + k * 2, 6 + k * 2, 0.17, Math.abs(k - 2), 3]),
+    [15, 16, 0.27, 2, 1, 'fern'],                                        // neck
+  ],
+  counts: { grass: 1500, leaves: 900, flowers: 240, crown: 0, ferns: 10, bugs: 2 },
+  unit: (J) => Math.max(1, J[0].distanceTo(J[1])),
+  frameN: (J, out) => out.set(0, 0, 1),
+  virtuals(J, V) {
+    const C = new THREE.Vector3().addVectors(J[0], J[1]).multiplyScalar(0.5)
+      .add(new THREE.Vector3().addVectors(J[2], J[3]).multiplyScalar(0.5)).multiplyScalar(0.5);
+    const X = new THREE.Vector3().subVectors(J[1], J[0]).multiplyScalar(0.5);
+    const Y = new THREE.Vector3().subVectors(J[2], J[3]).multiplyScalar(0.5);
+    const bulge = J[4].z - C.z;
+    FACE_U.forEach((u, k) => {
+      const h = Math.sqrt(1 - u * u) * 0.9;
+      for (const [j, sgn] of [[5 + k * 2, 1], [6 + k * 2, -1]]) {
+        J[j].copy(C).addScaledVector(X, u).addScaledVector(Y, sgn * h);
+        J[j].z = C.z + bulge * 0.55 * (1 - u * u);
+        V[j] = 1;
+      }
+    });
+    J[15].copy(J[3]).addScaledVector(Y, -0.15); J[15].z = C.z - X.length() * 0.3;
+    J[16].copy(J[3]).addScaledVector(Y, -0.42); J[16].z = J[15].z;
+    V[15] = V[16] = 1;
+  },
+  perches: [2, 5, 9, 13, 4, 15],
+  anchor: 4,
 };
 
 function segInfo(skel) {
@@ -158,7 +211,7 @@ function scatter(info, n, rand, opts = {}) {
     let pick = rand() * total, S = pool[0];
     for (const x of pool) { if ((pick -= x.w) <= 0) { S = x; break; } }
     let s;
-    if (S.tip && rand() < S.cap / S.w) s = S.tip === 2 ? -rand() * 0.92 : 1 + rand() * 0.92;   // fingertip / wrist cap
+    if (S.tip && rand() < S.cap / S.w) s = (S.tip === 2 || (S.tip === 3 && rand() < 0.5)) ? -rand() * 0.92 : 1 + rand() * 0.92;   // end caps
     else s = opts.sRange ? opts.sRange[0] + rand() * (opts.sRange[1] - opts.sRange[0]) : rand();
     seg.set([S.a, S.b, S.r], i * 3);
     at.set([s, rand() * Math.PI * 2], i * 2);
@@ -216,6 +269,26 @@ float scarMask(vec3 P, float rnd) {
   }
   return keep;
 }
+// Openings that must stay clear (eyes, the inside of the mouth): rotated ellipses in world px.
+uniform vec4 uHole[3]; uniform float uHoleA;
+float holeMask(vec3 P, float grow) {
+  float keep = 1.0;
+  float c = cos(uHoleA), s = sin(uHoleA);
+  for (int i = 0; i < 3; i++) {
+    if (uHole[i].z <= 0.0) continue;
+    vec2 d = P.xy - uHole[i].xy;
+    d = vec2(c * d.x + s * d.y, -s * d.x + c * d.y) / (uHole[i].zw * grow);
+    if (dot(d, d) < 1.0) keep = 0.0;
+  }
+  return keep;
+}
+// Finger snap: the live garden is hidden and regrows; a frozen copy (uIsShed) falls away.
+uniform float uSnapT; uniform float uIsShed;
+float snapRegrow(float rnd) {
+  float since = uTime - uSnapT;
+  if (since < 0.0 || since > 6.0) return 1.0;
+  return smoothstep(1.3 + rnd * 1.3, 2.1 + rnd * 1.6, since);
+}
 float grow(float delay) { return smoothstep(0.0, 1.0, clamp((uAge - delay) / 0.75, 0.0, 1.0)) * uFade; }
 `;
 
@@ -242,10 +315,23 @@ void main() {
   vec3 T2 = T * cos(ang) + cross(up, T) * sin(ang);
   vec3 B2 = cross(up, T2);
   float g = grow(aDelay) * segVis(aSeg) * scarMask(P, aRnd.w);
+  if (uIsShed < 0.5) g *= snapRegrow(aRnd.w) * holeMask(P, 1.35);
   float size = mix(uSizeMin, uSizeMax, aRnd.y) * uScale * g;
   vec3 lp = position;
   float h = clamp(lp.y, 0.0, 1.5);
-  vec3 world = P + (T2 * lp.x + up * lp.y + B2 * lp.z) * size;
+  vec3 fall = vec3(0.0);
+  if (uIsShed > 0.5) {
+    // each plant lets go a moment after the snap, tumbles and drifts down like a real leaf
+    float ts = max(0.0, uTime - uSnapT - aRnd.z * 0.22);
+    vec3 ax = normalize(vec3(aRnd.x - 0.5, aRnd.y - 0.5, aRnd.w - 0.5) + vec3(0.001));
+    float ang = ts * (1.5 + aRnd.y * 3.5);
+    lp = lp * cos(ang) + cross(ax, lp) * sin(ang) + ax * dot(ax, lp) * (1.0 - cos(ang));
+    float heavy = mix(0.55, 1.0, aRnd.x);
+    float drop = 0.5 * 4.5 * heavy * ts * ts / (1.0 + 0.6 * ts);   // gravity with a little air drag
+    fall = vec3(sin(ts * 2.4 + aRnd.x * 20.0) * 0.3 * ts + (aRnd.y - 0.5) * 0.5 * ts, -drop, (aRnd.w - 0.5) * 0.3 * ts) * uScale;
+    size *= 1.0 - smoothstep(1.9, 2.7, ts);
+  }
+  vec3 world = P + fall + (T2 * lp.x + up * lp.y + B2 * lp.z) * size;
   // wind, plus the plants lagging behind when the hand moves
   vec3 sway = vec3(sin(uTime * 1.7 + P.x * 0.02 + aRnd.z * 6.0), cos(uTime * 1.3 + P.y * 0.02), 0.0) * 0.06;
   sway += vec3(-uVel, 0.0) * 0.05;
@@ -260,27 +346,28 @@ void main() {
 const BODY_VS = /* glsl */`
 ${COMMON}
 attribute vec3 aSeg; attribute float aDelay;
-varying vec3 vN; varying vec3 vSurf; varying float vG;
+varying vec3 vN; varying vec3 vSurf; varying float vG; varying vec3 vW;
 void main() {
   vec3 P, N, D, U, V;
   float s = position.x, th = position.y;
   frameOf(aSeg, s, th, P, N, D, U, V);
   vec3 sp = vec3(s * 3.0 + aSeg.x * 1.7, cos(th) * 1.2, sin(th) * 1.2 + aSeg.y);
-  float g = grow(aDelay * 0.6) * segVis(aSeg) * scarMask(P, 0.15);
+  float g = grow(aDelay * 0.6) * segVis(aSeg) * scarMask(P, 0.15) * snapRegrow(-0.35);
   float lump = (vnoise(sp * 3.0) - 0.5) * 0.35 + 0.1;
   float r = aSeg.z * uScale;
   // grow outward from the skin: the moss swells into place
-  P += N * r * (lump * g - (1.0 - g) * 0.95);
-  vN = N; vSurf = sp; vG = g;
+  P += N * r * (lump * g - (1.0 - g) * 0.2);
+  vN = N; vSurf = sp; vG = g; vW = P;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.0);
 }`;
 const BODY_FS = /* glsl */`
 ${COMMON}
 uniform vec3 uMossDark; uniform vec3 uMossLight;
-varying vec3 vN; varying vec3 vSurf; varying float vG;
+varying vec3 vN; varying vec3 vSurf; varying float vG; varying vec3 vW;
 void main() {
-  if (vG < 0.02) discard;
+  if (holeMask(vW, 1.0) < 0.5) discard;
   float n = vnoise(vSurf * 9.0) * 0.6 + vnoise(vSurf * 23.0) * 0.4;
+  if (vG < 0.02 || n > vG * 1.25) discard;      // moss spreads in patches as it grows
   vec3 c = mix(uMossDark, uMossLight, smoothstep(0.25, 0.85, n));
   float dif = 0.45 + 0.55 * max(dot(normalize(vN), LIGHT), 0.0);
   float rim = smoothstep(0.0, 0.6, vN.z);
@@ -517,6 +604,8 @@ export class Garden {
     this.u = {
       uJ: { value: this.joints }, uVis: { value: this.vis }, uScale: { value: 100 }, uPalmN: { value: new THREE.Vector3(0, 0, 1) },
       uTime: { value: 0 }, uAge: { value: 0 }, uFade: { value: 0 }, uVel: { value: new THREE.Vector2() },
+      uSnapT: { value: -100 }, uIsShed: { value: 0 },
+      uHole: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, uHoleA: { value: 0 },
       uScarJ: { value: new Float32Array(8) }, uScarOff: { value: Array.from({ length: 8 }, () => new THREE.Vector3()) },
       uScarR: { value: new Float32Array(8).fill(1) }, uScarT: { value: new Float32Array(8).fill(-100) },
       uMossDark: { value: new THREE.Color() }, uMossLight: { value: new THREE.Color() },
@@ -535,7 +624,7 @@ export class Garden {
       m.frustumCulled = false;
       m.renderOrder = opts.order ?? 0;
       this.group.add(m);
-      this.meshes.push({ mesh: m, full: geo.instanceCount });
+      this.meshes.push({ mesh: m, full: geo.instanceCount, plant: vs === PLANT_VS });
       return m;
     };
     const q = (n) => Math.max(1, Math.round(n * quality));
@@ -595,6 +684,7 @@ export class Garden {
   update(pts, t, dt) {
     const u = this.u, skel = this.skel;
     u.uTime.value = t;
+    if (this.shedGroup && t > this.shedUntil) this.shedGroup.visible = false;
     if (pts) {
       if (!this.tracked) {
         if (t - this.lostAt > 0.6) this.seenAt = t;      // a real return regrows; a blip keeps the garden
@@ -610,7 +700,7 @@ export class Garden {
       const scale = skel.unit(J);
       u.uScale.value = scale;
       skel.frameN(J, u.uPalmN.value);
-      const anchor = J[skel === HAND ? 9 : 33];
+      const anchor = J[skel.anchor ?? 0];
       if (this.prevPalm && dt > 0) {
         const vx = (anchor.x - this.prevPalm.x) / dt / scale, vy = (anchor.y - this.prevPalm.y) / dt / scale;
         this.vel.lerp(new THREE.Vector2(vx, vy), 0.2);
@@ -627,6 +717,63 @@ export class Garden {
       if (u.uFade.value <= 0) this.group.visible = false;
     }
     u.uVel.value.copy(this.vel);
+  }
+
+  /**
+   * Face openings from 12 world points: left eye (outer, inner, top, bottom), right eye (same),
+   * mouth (left corner, right corner, upper inner lip, lower inner lip). null clears them.
+   */
+  setHoles(p) {
+    const H = this.u.uHole.value;
+    if (!p) { H.forEach((h) => h.set(0, 0, 0, 0)); return; }
+    const d = (a, b) => Math.hypot(p[a][0] - p[b][0], p[a][1] - p[b][1]);
+    const mid = (a, b) => [(p[a][0] + p[b][0]) / 2, (p[a][1] + p[b][1]) / 2];
+    this.u.uHoleA.value = Math.atan2(p[4][1] - p[0][1], p[4][0] - p[0][0]);
+    const eye = (o, i, t, b, h) => {
+      const c = mid(o, i), w = d(o, i);
+      h.set(c[0], c[1], w * 0.62, Math.max(d(t, b) * 0.9, w * 0.28));
+    };
+    eye(0, 1, 2, 3, H[0]);
+    eye(4, 5, 6, 7, H[1]);
+    const mc = mid(10, 11), mw = d(8, 9), open = d(10, 11);
+    if (open > mw * 0.08) H[2].set(mc[0], mc[1], mw * 0.5, open * 0.6);
+    else H[2].set(0, 0, 0, 0);                                     // mouth closed: nothing to keep clear
+  }
+
+  /** Finger snap: everything falls off where it is, the hand shows, then the garden regrows. */
+  shed(t) {
+    if (!this.tracked) return false;
+    if (!this.shedGroup) {
+      this.shedGroup = new THREE.Group();
+      this.group.parent.add(this.shedGroup);
+      this.snapJ = this.joints.map((v) => v.clone());
+      this.snapVis = new Float32Array(this.vis);
+      const su = {
+        ...this.u, uJ: { value: this.snapJ }, uVis: { value: this.snapVis }, uScale: { value: 1 },
+        uPalmN: { value: new THREE.Vector3() }, uAge: { value: 99 }, uFade: { value: 1 },
+        uVel: { value: new THREE.Vector2() }, uIsShed: { value: 1 },
+      };
+      this.su = su;
+      for (const { mesh, plant } of this.meshes) {
+        if (!plant) continue;
+        const m0 = mesh.material, own = {};
+        for (const k of ['uSizeMin', 'uSizeMax', 'uDroop', 'uFaceCam', 'uCrawl']) own[k] = m0.uniforms[k];
+        const m = new THREE.Mesh(mesh.geometry, new THREE.ShaderMaterial({
+          vertexShader: m0.vertexShader, fragmentShader: m0.fragmentShader, side: m0.side, defines: m0.defines,
+          uniforms: { ...su, ...own },
+        }));
+        m.frustumCulled = false;
+        this.shedGroup.add(m);
+      }
+    }
+    this.joints.forEach((v, i) => this.snapJ[i].copy(v));
+    this.snapVis.set(this.vis);
+    this.su.uScale.value = this.u.uScale.value;
+    this.su.uPalmN.value.copy(this.u.uPalmN.value);
+    this.u.uSnapT.value = t;
+    this.shedGroup.visible = true;
+    this.shedUntil = t + 3;
+    return true;
   }
 
   /** Clear a patch around a world point (it regrows). Rubbing the same spot keeps it bare. */

@@ -90,3 +90,16 @@ export function shake(amount = 1) {
   src.connect(f).connect(g).connect(master);
   src.start(t, Math.random()); src.stop(t + 1);
 }
+
+/** Finger snap: a dry click, then the leaves letting go. */
+export function snap() {
+  if (!ctx || !on || !noise) return;
+  const t = ctx.currentTime, src = ctx.createBufferSource();
+  src.buffer = noise;
+  const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  src.connect(f).connect(g).connect(master);
+  src.start(t, Math.random()); src.stop(t + 0.1);
+  setTimeout(() => shake(0.7), 120);
+}

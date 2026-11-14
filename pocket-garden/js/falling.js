@@ -58,7 +58,8 @@ export class Falling {
    * Knock n bits off around a world point. unit = palm/shoulder size in px, push = hand velocity (px/s),
    * colors = garden uniforms for this season.
    */
-  burst(center, radius, n, unit, push, colors) {
+  burst(center, radius, n, unit, push, colors, gentle = false) {
+    const kick = gentle ? 0.2 : 1;
     const pal = [colors.uLeaf.value, colors.uGrassTip.value, colors.uMossLight.value, colors.uF0.value, colors.uF1.value];
     for (let i = 0; i < n; i++) {
       if (this.parts.length >= MAX) this.parts.shift();
@@ -69,7 +70,7 @@ export class Falling {
       const tint = 0.8 + Math.random() * 0.35;
       this.parts.push({
         x: center.x + Math.cos(a) * r, y: center.y + Math.sin(a) * r, z: center.z + unit * 0.4,
-        vx: (Math.random() - 0.5) * unit * 2.2 + push.x * 0.25, vy: Math.random() * unit * 1.6 + push.y * 0.15,
+        vx: ((Math.random() - 0.5) * unit * 2.2 + push.x * 0.25) * kick, vy: (Math.random() * unit * 1.6 + push.y * 0.15) * kick,
         spin: Math.random() * 6.28, vs: (Math.random() - 0.5) * 8, tilt: Math.random() * 6.28, vt: 3 + Math.random() * 6,
         size: unit * (kind === 1 ? 0.13 : kind === 2 ? 0.06 : 0.09) * (0.7 + Math.random() * 0.6),
         kind, life: 0, max: 1.8 + Math.random() * 1.2, unit,
