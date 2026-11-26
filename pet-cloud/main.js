@@ -6,9 +6,9 @@ import { THREE, GLOW_BLEND, S, T, scene, boot, toast, clamp, lerp, rand, damp, d
 
 // ---------- textures ----------
 const PUFF = canvasTex(128, (g, s) => { // soft, slightly lumpy cloud puff
-  for (let i = 0; i < 26; i++) {
-    const a = Math.random() * Math.PI * 2, r = Math.random() * s * 0.16, x = s / 2 + Math.cos(a) * r, y = s / 2 + Math.sin(a) * r, rad = s * (0.18 + Math.random() * 0.16);
-    const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * s * 0.14, x = s / 2 + Math.cos(a) * r, y = s / 2 + Math.sin(a) * r, rad = s * (0.18 + Math.random() * 0.16);
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(255,255,255,.5)'); gr.addColorStop(0.6, 'rgba(255,255,255,.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = gr; g.fillRect(0, 0, s, s);
   }
 });
@@ -18,12 +18,12 @@ void FLAKE;
 // ---------- the cloud: ~44 lit puffs + a face ----------
 const cloud = new THREE.Group(); scene.add(cloud);
 const puffs = [];
-for (let i = 0; i < 44; i++) {
+for (let i = 0; i < 80; i++) {
   // dome: wide flat bottom, rounded heaped top
   const x = rand(-1, 1), top = 0.55 * Math.sqrt(Math.max(0, 1 - x * x)) + 0.12, y = rand(-0.18, top), z = rand(-0.25, 0.25);
   const m = new THREE.SpriteMaterial({ map: PUFF, transparent: true, depthWrite: false, color: 0xffffff });
   const s = new THREE.Sprite(m); s.renderOrder = 10 + Math.round((z + 0.3) * 10);
-  const base = { x, y, z, size: rand(0.55, 0.85) * (1 - Math.abs(x) * 0.35), ph: rand(0, 6.28), sp: rand(0.4, 0.9) };
+  const base = { x, y, z, size: rand(0.42, 0.7) * (1 - Math.abs(x) * 0.35), ph: rand(0, 6.28), sp: rand(0.4, 0.9) };
   puffs.push({ s, base }); cloud.add(s);
 }
 // the face
@@ -41,7 +41,7 @@ function drawFace(mood, blink, look) {
     const h = Math.max(0.12, 1 - blink) * (mood === 'surprised' ? 1.25 : 1);
     g.beginPath(); g.ellipse(x + lx, ey, 11, 15 * h, 0, 0, Math.PI * 2); g.fill();
     if (h > 0.4) { g.fillStyle = '#fff'; g.beginPath(); g.arc(x + lx + 4, ey - 5 * h, 4, 0, 7); g.fill(); g.fillStyle = '#2a2433'; }
-    if (mood === 'sad') { g.beginPath(); g.moveTo(x - 16, ey - 22 + (x < W / 2 ? 6 : -6) * -1); g.lineTo(x + 16, ey - 22 + (x < W / 2 ? -6 : 6) * -1); g.lineWidth = 5; g.stroke(); g.lineWidth = 7; }
+    if (mood === 'sad') { g.beginPath(); g.moveTo(x - 16, ey - 22 + (x < W / 2 ? 6 : -6)); g.lineTo(x + 16, ey - 22 + (x < W / 2 ? -6 : 6)); g.lineWidth = 5; g.stroke(); g.lineWidth = 7; }
     if (mood === 'storm') { g.beginPath(); g.moveTo(x - 16, ey - 26 + (x < W / 2 ? -6 : 6)); g.lineTo(x + 16, ey - 26 + (x < W / 2 ? 6 : -6)); g.lineWidth = 6; g.stroke(); g.lineWidth = 7; }
   }
   // cheeks
@@ -90,7 +90,7 @@ function bolt(a, b, width, life = 0.35, branch = true) {
 
 // precipitation
 const rain = new Particles(2500, THREE.NormalBlending, { order: 30 });
-rain.pts.material.fragmentShader = 'uniform float soft;varying vec4 vc;void main(){vec2 q=gl_PointCoord-.5;float a=smoothstep(.09,0.,abs(q.x))*smoothstep(.5,.1,abs(q.y));gl_FragColor=vec4(vc.rgb,vc.a*a);}';
+rain.pts.material.fragmentShader = 'uniform float soft;varying vec4 vc;void main(){vec2 q=gl_PointCoord-.5;float a=smoothstep(.13,0.,abs(q.x))*smoothstep(.5,.1,abs(q.y));gl_FragColor=vec4(vc.rgb,vc.a*a);}';
 const splash = new Particles(1200, THREE.NormalBlending, { order: 31 });
 const snow = new Particles(800, THREE.NormalBlending, { order: 31 });
 rain.onDie = (x, y) => { if (Math.random() < 0.6) for (let i = 0; i < 2; i++) splash.emit(x, y, rand(-50, 50), -rand(30, 90), 0.3, rand(2, 4), 0.75, 0.88, 1, 0.7, 500, 0, 0.5); };
@@ -214,7 +214,7 @@ function update(dt) {
     const x = P.x + rand(-0.42, 0.42) * s * (1 + P.squeeze * 0.2), y = P.y + s * 0.08, v = s * rand(3.2, 4) + 200;
     const handHit = h.hand && Math.abs(x - h.hand.seat.x) < h.hand.size.x * 0.9;
     const yEnd = handHit ? floorY + rand(-0.2, 0.2) * h.hand.size.x : S.H + 20;
-    rain.emit(x, y, P.vx * 0.2, v, Math.max(0.05, (yEnd - y) / v), rand(7, 12) * (s / 200) + 4, 0.7, 0.82, 1, 0.75, 0, 0, 0);
+    rain.emit(x, y, P.vx * 0.2, v, Math.max(0.05, (yEnd - y) / v), rand(10, 16) * (s / 200) + 5, 0.82, 0.9, 1, 0.95, 0, 0, 0);
   }
   if (P.snow > 0.1 && Math.random() < P.snow) snow.emit(P.x + rand(-0.45, 0.45) * s, P.y + s * 0.1, rand(-20, 20), rand(30, 60), rand(2, 3.5), rand(3, 6), 1, 1, 1, 0.95, 0, 0, 0.2);
   rainBed?.set(Math.min(0.22, (P.rain + P.squeeze) * 0.2), 1400 + P.rain * 1800); windBed?.set(P.wind * 0.2, 900);
