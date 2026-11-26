@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mini Me</title>
+<meta name="description" content="A tiny you sits on your shoulder, wearing your face a beat late. Then it starts doing its own thing.">
+<link rel="stylesheet" href="../live-kit/style.css">
+<style>:root{--accent:#ffb36b}#intro{background:radial-gradient(circle at 50% 30%,#2b2018,#07070c 70%)}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="gl"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="vignette"></div>
+  <div id="bars" class="off"><i></i><i></i></div>
+</div>
+<div id="toast" aria-live="polite"></div>
+<div id="rec-dot" class="off">● REC</div>
+
+<section id="intro">
+  <div class="card">
+    <h1>Mini Me</h1>
+    <p class="sub">A tiny you, on your shoulder. It copies you. Mostly.</p>
+    <ul>
+      <li><b>Step back</b> so your face and both shoulders are in view.</li>
+      <li>It wears <b>your face, live</b>, half a second late, and copies your arms.</li>
+      <li>Pull a <b>silly face</b>. It remembers, and plays it back later.</li>
+      <li><b>Bring your hand close</b> for a high five.</li>
+    </ul>
+    <button id="start" class="big">Start camera</button>
+    <p id="status" class="fine">Uses your camera. Your face never leaves your device.</p>
+  </div>
+</section>
+
+<nav id="bar" class="hidden" aria-label="Controls">
+  <div class="row" id="acts">
+    <button data-cmd="head"><span>🧢</span>Climb head</button>
+    <button data-cmd="replay"><span>🤪</span>Your face</button>
+    <button data-cmd="wave"><span>👋</span>Wave</button>
+    <button data-cmd="dance"><span>🕺</span>Dance</button>
+    <button data-cmd="opposite"><span>🙃</span>Opposite</button>
+    <button data-cmd="sleep"><span>😴</span>Sleep</button>
+  </div>
+  <div class="row">
+    <button id="sound" aria-pressed="true"><span>🔊</span>Sound on</button>
+    <button id="cinema" aria-pressed="false"><span>🎬</span>Cinema off</button>
+    <button id="record" aria-pressed="false"><span>⏺</span>Record</button>
+  </div>
+</nav>
+<script type="module" src="main.js"></script>
+</body>
+</html>
