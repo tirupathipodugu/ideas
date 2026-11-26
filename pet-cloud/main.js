@@ -2,7 +2,7 @@
 // Smile → it turns white and throws a rainbow. Frown → it rains on your palm. Scowl → thunderstorm.
 // Clap → lightning strike. Squeeze your fist under it → you wring it out. Blow at it → it drifts away.
 // Poke it with a finger → it giggles.
-import { THREE, S, T, scene, boot, toast, clamp, lerp, rand, damp, dist, Particles, glitter, burst, tone, noise, loopNoise, canvasTex, TEX, renderer } from '../live-kit/core.js';
+import { THREE, GLOW_BLEND, S, T, scene, boot, toast, clamp, lerp, rand, damp, dist, Particles, glitter, burst, tone, noise, loopNoise, canvasTex, TEX, renderer } from '../live-kit/core.js';
 
 // ---------- textures ----------
 const PUFF = canvasTex(128, (g, s) => { // soft, slightly lumpy cloud puff
@@ -57,7 +57,7 @@ function drawFace(mood, blink, look) {
 
 // rainbow arc behind the cloud
 const rainbow = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.5, 64, 1, 0, Math.PI), new THREE.ShaderMaterial({
-  uniforms: { a: { value: 0 } }, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+  uniforms: { a: { value: 0 } }, transparent: true, depthWrite: false, depthTest: false, ...GLOW_BLEND,
   vertexShader: 'varying vec3 p;void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
   fragmentShader: 'uniform float a;varying vec3 p;vec3 hue(float h){return clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);}void main(){float r=(length(p.xy)-1.1)/.4;vec3 c=hue(.82*(1.-r));float e=smoothstep(0.,.15,r)*smoothstep(1.,.85,r);float f=smoothstep(0.,.35,p.y+.05);gl_FragColor=vec4(c*e*f*a*.7,1.);}',
 }));

@@ -1,7 +1,7 @@
 // Portal Palm: open your hand and a glowing hole opens in it, with real depth. Tiny creatures
 // climb out one by one, then a hundred pour out and run up your arm onto your shoulders and head.
 // Make a fist and the portal sucks every one of them back in.
-import { THREE, Q, S, T, F, scene, boot, toast, clamp, lerp, rand, dist, smooth, hsl, glitter, burst, tone, noise, hum, loopNoise, onResize } from '../live-kit/core.js';
+import { THREE, GLOW_BLEND, Q, S, T, F, scene, boot, toast, clamp, lerp, rand, dist, smooth, hsl, glitter, burst, tone, noise, hum, loopNoise, onResize } from '../live-kit/core.js';
 import { loadBuddy, Buddy, Rest, Hold, Crouch, Air, Land, Path, Call, bsfx } from '../live-kit/buddy.js';
 
 const N = Math.min(150, +Q.get('n') || 100);
@@ -55,7 +55,7 @@ class Portal {
     const [c1, c2] = PALETTES[pal]; this.c2 = c2;
     const U = () => ({ t: { value: 0 }, open: { value: 0 }, c1: { value: c1 }, c2: { value: c2 } });
     this.hole = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ uniforms: U(), vertexShader: VERT, fragmentShader: HOLE, transparent: true, depthWrite: false }));
-    this.rim = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ uniforms: U(), vertexShader: VERT, fragmentShader: RIM, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.rim = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ uniforms: U(), vertexShader: VERT, fragmentShader: RIM, transparent: true, depthWrite: false, ...GLOW_BLEND }));
     this.g = new THREE.Group(); this.g.add(this.hole, this.rim); this.rim.position.z = 1; scene.add(this.g);
     this.light = new THREE.PointLight(c2, 0, 0, 0); scene.add(this.light);
     this.spawned = 0; this.lost = 0; this.shut = 0; this.creatures = [];

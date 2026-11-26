@@ -66,6 +66,8 @@ function resize() {
 }
 addEventListener('resize', resize); overlay.width = S.W; overlay.height = S.H;
 /** screen px point (y down) → scene position */
+/** additive light that does not punch the canvas alpha (premultiplied canvas over the video) */
+export const GLOW_BLEND = { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor };
 export const toW = (p, z = 0, out = new THREE.Vector3()) => out.set(p.x, S.H - p.y, z);
 
 // ---------- textures ----------

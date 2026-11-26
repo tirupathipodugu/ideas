@@ -2,7 +2,7 @@
 // a pond whose waterfall pours down past your face, and tiny people going about their day.
 // Tilt your head and the water spills and the people slide and panic. Nod and they bounce.
 // Smile for a rainbow. Close your eyes and night falls on the island.
-import { THREE, S, T, scene, boot, toast, clamp, lerp, rand, damp, angLerp, glitter, Particles, burst, tone, noise, loopNoise, TEX } from '../live-kit/core.js';
+import { THREE, GLOW_BLEND, S, T, scene, boot, toast, clamp, lerp, rand, damp, angLerp, glitter, Particles, burst, tone, noise, loopNoise, TEX } from '../live-kit/core.js';
 
 // ---------- materials ----------
 const night = { v: 0, goal: 0 };
@@ -34,7 +34,7 @@ island.add(yawG); yawG.add(tiltG); tiltG.add(world);
 const add = (geo, mat, x = 0, y = 0, z = 0, parent = world) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
 add(jitter(new THREE.CylinderGeometry(1, 0.97, 0.1, 22, 1), 0.025, true), MAT.grass, 0, 0.05, 0);
 add(jitter(new THREE.CylinderGeometry(0.97, 0.9, 0.16, 22, 1), 0.03), MAT.dirt, 0, -0.08, 0);
-add(jitter(new THREE.ConeGeometry(0.9, 1.25, 16, 4), 0.07), MAT.rock, 0, -0.78, 0).rotation.x = Math.PI;
+add(jitter(new THREE.ConeGeometry(0.9, 0.95, 16, 4), 0.06), MAT.rock, 0, -0.63, 0).rotation.x = Math.PI;
 for (let i = 0; i < 7; i++) { // floating rock crumbs
   const a = rand(0, Math.PI * 2), r = rand(0.75, 1.25);
   add(jitter(new THREE.IcosahedronGeometry(rand(0.05, 0.11), 0), 0.02), MAT.rock2, Math.cos(a) * r, rand(-0.9, -0.25), Math.sin(a) * r).userData.crumb = rand(0, 6);
@@ -78,7 +78,7 @@ for (let i = 0; i < 3; i++) {
 }
 // rainbow (local, behind the island)
 const rainbow = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.55, 64, 1, 0, Math.PI), new THREE.ShaderMaterial({
-  uniforms: { a: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  uniforms: { a: { value: 0 } }, transparent: true, depthWrite: false, ...GLOW_BLEND, side: THREE.DoubleSide,
   vertexShader: 'varying vec3 p;void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
   fragmentShader: 'uniform float a;varying vec3 p;vec3 hue(float h){return clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);}void main(){float r=(length(p.xy)-1.15)/.4;vec3 c=hue(.82*(1.-r));float e=smoothstep(0.,.15,r)*smoothstep(1.,.85,r);float f=smoothstep(0.,.25,p.y);gl_FragColor=vec4(c*e*f*a*.75,1.);}',
 }));
@@ -223,9 +223,10 @@ const app = {
     const t = S.t;
     island.visible = H.lost < 1.5;
     // pose the island: float above the head, roll with it, turn a little with your yaw
-    const R = H.w * 0.62, lift = H.w * 0.42 + Math.sin(t * 1.3) * H.w * 0.025;
+    const R = Math.min(H.w * 0.62, S.W * 0.34), lift = H.w * 0.42 + Math.sin(t * 1.3) * H.w * 0.025;
     const up = { x: Math.sin(H.roll), y: -Math.cos(H.roll) };
-    const cx = H.x + up.x * lift, cy = H.y + up.y * lift;
+    // close-ups: keep the island in the frame (it sits a little lower on your hair instead)
+    const cx = H.x + up.x * lift, cy = Math.max(H.y + up.y * lift, R * 0.75 + 16);
     island.position.set(cx, S.H - cy, 0); island.scale.setScalar(R);
     island.rotation.z = -H.roll + Math.sin(t * 0.9) * 0.02;
     yawG.rotation.y = H.yaw * 0.9 + Math.sin(t * 0.4) * 0.05;
