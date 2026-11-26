@@ -228,7 +228,7 @@ class Buddy {
     if (this.cur && this.cur !== a) this.cur.crossFadeTo(a, fade, false);
     this.cur = a; this.curName = name; this.contactT = CONTACT[name] ?? -0.5;
   }
-  run(steps) { this.q = steps; this.step = null; }
+  run(steps) { this.q = steps; this.step = null; if (this.main && sparkle && !sparkle.held) sparkle.chased = false; }
   get busy() { return !!(this.step && !this.step.rest) || this.q.length > 0; }
   update(dt) {
     if (!this.step && this.q.length) { this.step = this.q.shift(); this.step.start?.(this); }
@@ -334,8 +334,8 @@ function readHands(res, t) {
   out.forEach((h, i) => {
     const k = 'hand' + i;
     h.seat = F(k, { ...h.raw, ang: h.ang }, t);
-    h.open = h.ext >= 4; h.closed = h.ext <= 1;
-    h.spark = F(k + 's', { ...add(h.tip, h.hup, 0.6 * BH), ang: 0 }, t);
+    h.open = h.ext >= 3; h.closed = h.ext <= 1;
+    h.spark = F(k + 's', { x: lerp(h.wrist.x, h.tip.x, 0.62), y: lerp(h.wrist.y, h.tip.y, 0.62), ang: 0 }, t);
   });
   handState.length = 0; handState.push(...out);
 }
@@ -480,7 +480,7 @@ const Call = (f) => ({ start(b) { f(b); }, update: () => true });
 // ---------- sparkle ----------
 class Sparkle {
   constructor(posFn) {
-    this.posFn = posFn; this.t = 0; this.held = null; this.dead = false; this.pos = posFn() || { x: W / 2, y: H / 2 };
+    this.posFn = posFn; this.t = 0; this.held = null; this.dead = false; this.hand = -1; this.lost = 0; this.chased = false; this.pos = posFn() || { x: W / 2, y: H / 2 };
     this.core = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, blending: THREE.AdditiveBlending, depthTest: false, transparent: true }));
     this.star = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.star, blending: THREE.AdditiveBlending, depthTest: false, transparent: true, color: 0xfff2d0 }));
     this.core.renderOrder = this.star.renderOrder = 30; scene.add(this.core, this.star);
@@ -495,15 +495,17 @@ class Sparkle {
       const p = this.posFn(); if (p) this.pos = { x: lerp(this.pos.x, p.x, Math.min(1, dt * 10)), y: lerp(this.pos.y, p.y + Math.sin(this.t * 3) * BH * 0.08, Math.min(1, dt * 10)) };
       this.scale = Math.min(1, this.t * 3);
     }
-    const s = BH * 0.75 * this.scale * (1 + 0.12 * Math.sin(this.t * 9));
+    const h = handState[this.hand], size = Math.max(BH * 0.8, h ? h.pw * 1.6 : 0, 90);
+    const s = size * this.scale * (1 + 0.12 * Math.sin(this.t * 9));
     this.core.position.set(this.pos.x, H - this.pos.y, 950); this.core.scale.setScalar(s);
-    this.star.position.copy(this.core.position); this.star.scale.setScalar(s * 0.9); this.star.material.rotation = this.t * 1.4;
+    this.star.position.copy(this.core.position); this.star.scale.setScalar(s * 1.15); this.star.material.rotation = this.t * 1.4;
     if (Math.random() < 0.9) {
       const a = rand(0, Math.PI * 2), r = rand(0.2, 0.6) * BH * this.scale;
       glitter.emit(this.pos.x + Math.cos(a) * r, this.pos.y + Math.sin(a) * r, rand(-15, 15), rand(-25, 5), rand(0.4, 0.9), BH * rand(0.04, 0.1), 1, rand(0.85, 1), rand(0.55, 0.9), 1);
     }
   }
   catchBy(b) { this.held = b; burst(this.pos.x, this.pos.y, BH * 0.6, 110); sfx.chime(); b.glowT = 9; }
+  vanish() { burst(this.pos.x, this.pos.y, BH * 0.35, 30); this.kill(); }
   kill() { scene.remove(this.core, this.star); this.core.material.dispose(); this.star.material.dispose(); this.dead = true; }
 }
 let sparkle = null;
@@ -580,10 +582,12 @@ function command(c, src = 'button') {
       if (i != null && handState[i]) { activeHand = i; sparkleCatch(i); return; }
       // no hand: a sparkle appears in the air next to Byte, Byte jumps, catches it and lands back
       const home = byte.at; const off = { x: byte.pos.x - BH * rand(1.4, 2.2), y: byte.pos.y - BH * rand(1.3, 1.9) };
+      if (sparkle && !sparkle.dead) sparkle.kill();
       sparkle = new Sparkle(() => off);
       byte.run([Hold(home, REST_CLIP[home] || 'stand_idle', 0.6, { yaw: -0.6 }), Crouch(here()),
         Air(() => sparkle && !sparkle.held ? sparkle.pos : off, { flip: false, onArrive: (b) => sparkle?.catchBy(b) }),
         hover(), Air(ANCHOR[home], { clip: 'catch', from: 0.9, h: 0.4 * BH, flip: false }), Land(home), Hold(home, 'cheer', 1.3, { glow: 6 }), Rest(home)]);
+      sparkle.chased = true;
       return;
     }
     case 'multiply': swarmStart(); return;
@@ -605,9 +609,13 @@ function pickHand() {
   handState.forEach((h, i) => { const sc = (h.open ? 1000 : 0) - dist(h.seat, byte.pos); if (sc > bs) { bs = sc; best = i; } });
   return best;
 }
+function spawnSparkle(i) {
+  sparkle = new Sparkle(() => handState[i]?.spark || null); sparkle.hand = i;
+  if (!sparkle.posFn()) sparkle.pos = { ...(handState[i]?.seat || sparkle.pos) };
+}
 function sparkleCatch(i) {
   activeHand = i; const pf = () => handState[i]?.spark || null;
-  sparkle = new Sparkle(pf);
+  if (!sparkle || sparkle.dead || sparkle.held) spawnSparkle(i);
   const ap = body.ok && byte.at === 'shoulder' ? armPathTo(i) : null;
   const grab = [Air(() => (sparkle && !sparkle.held ? sparkle.pos : pf()), { flip: false, onArrive: (b) => sparkle?.catchBy(b), trail: true }), hover(),
     Air(palmOf(i), { clip: 'catch', from: 0.9, h: 0.35 * BH, flip: false }), Land('palm'), Hold('palm', 'cheer', 1.4, { glow: 6 }), Rest('palm')];
@@ -615,6 +623,7 @@ function sparkleCatch(i) {
   if (ap && ap.kind === 'flat') byte.run([notice, Hold('shoulder', 'stand_up', 0.6), Path(ap.pts.slice(0, -1), 'run'), Crouch(), ...grab]);
   else if (ap && ap.kind === 'down') byte.run([notice, Path(ap.pts.slice(0, -1), 'slide'), Crouch(), ...grab]);
   else byte.run([notice, ...launchFrom(), ...grab]);
+  sparkle.chased = true;
 }
 
 // ---------- the swarm: Byte splits into 100 colourful clones ----------
@@ -699,8 +708,19 @@ function brain(dt) {
   if (swarm.on && !swarm.ending && swarm.t > 4 && (open.length === 0 ? (swarm.emptyT += dt) : (swarm.emptyT = 0)) > 1.3) swarmEnd();
   if (swarm.on && !swarm.ending && swarm.t > 18) swarmEnd();
   // one open hand → sparkle appears, Byte goes for it
-  if (G.one > 0.35 && G.both === 0 && !swarm.on && !byte.busy && byte.at !== 'palm' && (!sparkle || sparkle.dead)) {
-    const i = handState.indexOf(open[0]); sparkleCatch(i); G.one = -99;
+  G.shut = open.length === 0 ? (G.shut || 0) + dt : 0;
+  if (G.shut > 0.3) G.needReopen = false;
+  if (G.one > 0.25 && G.both === 0 && !swarm.on && !G.needReopen && (!sparkle || sparkle.dead)) {
+    spawnSparkle(handState.indexOf(open[0])); G.one = 0; G.needReopen = true;
+    if (!G.sawHand) { G.sawHand = true; toast('✨ Sparkle! Watch Byte'); }
+  }
+  if (sparkle && !sparkle.dead && !sparkle.held) {
+    if (sparkle.hand >= 0) {
+      const h = handState[sparkle.hand];
+      sparkle.lost = !h || h.closed ? sparkle.lost + dt : 0;
+      if (sparkle.lost > 0.8 && !sparkle.chased) sparkle.vanish();
+    }
+    if (!sparkle.dead && !sparkle.chased && !byte.busy && sparkle.t > 0.45 && !swarm.on && sparkle.hand >= 0) sparkleCatch(sparkle.hand);
   }
   // on the palm: fist or hand gone → back to the shoulder
   if (byte.at === 'palm' && !byte.busy) {
@@ -875,7 +895,7 @@ $('#start').addEventListener('click', async () => {
   toast('Open your hand ✋', 3);
   window.__byte = { byte, body, handState, command, swarm, G,
     tick(sec) { for (let t = 0; t < sec; t += 1 / 30) { brain(1 / 30); byte.update(1 / 30); swarmUpdate(1 / 30); if (sparkle && !sparkle.dead) sparkle.update(1 / 30); glitter.update(1 / 30); dust.update(1 / 30); } renderer.render(scene, cam); },
-    fakeHands(list) { handState.length = 0; for (const [x, y, open] of list) { const p = { x, y, ang: 0 }; handState.push({ seat: p, raw: p, open, closed: !open, ext: open ? 4 : 0, tip: { x, y: y - 80 }, wrist: { x, y: y + 60 }, hup: { x: 0, y: -1 }, spark: { x, y: y - 80 - 0.6 * BH, ang: 0 }, ang: 0 }); } },
+    fakeHands(list) { handState.length = 0; for (const [x, y, open] of list) { const p = { x, y, ang: 0 }; handState.push({ seat: p, raw: p, open, closed: !open, ext: open ? 4 : 0, tip: { x, y: y - 80 }, wrist: { x, y: y + 60 }, hup: { x: 0, y: -1 }, pw: 60, spark: { x, y: y - 30, ang: 0 }, ang: 0 }); } },
     get sparkle() { return sparkle; } };
 });
 $('#acts').addEventListener('click', (e) => { const b = e.target.closest('button[data-cmd]'); if (b) command(b.dataset.cmd); });
