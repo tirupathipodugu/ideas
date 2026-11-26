@@ -169,7 +169,7 @@ function emitWater(local, n, sz, out) {
   const c = world.localToWorld(new THREE.Vector3(local.x * 0.8, local.y, local.z * 0.8)), dx = w.x - c.x, dy = -(w.y - c.y), dl = Math.hypot(dx, dy) || 1;
   for (let i = 0; i < n; i++) {
     const v = rand(0.6, 1.2) * out;
-    water.emit(sx + rand(-1, 1) * sz * 0.08, sy + rand(-1, 1) * sz * 0.03, (dx / dl) * v + rand(-8, 8), (dy / dl) * v * 0.4 + rand(0, 20), rand(1.0, 1.5), rand(0.035, 0.06) * sz, rand(0.55, 0.75), rand(0.82, 0.92), 1, rand(0.55, 0.85), sz * 9, 0.6, 0.4);
+    water.emit(sx + rand(-1, 1) * sz * 0.08, sy + rand(-1, 1) * sz * 0.03, (dx / dl) * v + rand(-8, 8), (dy / dl) * v * 0.4 + rand(0, 20), rand(1.0, 1.5), rand(0.05, 0.085) * sz, rand(0.35, 0.6), rand(0.7, 0.85), 1, rand(0.8, 1), sz * 9, 0.6, 0.4);
     if (Math.random() < 0.15) spray.emit(sx, sy, rand(-20, 20), rand(-10, 30), 0.8, rand(0.02, 0.05) * sz, 0.8, 0.9, 1, 0.6, sz * 7, 0, 0.5);
   }
 }
@@ -271,7 +271,7 @@ const app = {
     slosh.vz += (acc.z * 0.09 - slosh.z) * 30 * dt - slosh.vz * 3 * dt; slosh.z += slosh.vz * dt;
     pond.rotation.set(-Math.PI / 2 + slosh.z, slosh.x, 0);
     // waterfall (always) + spills off the low edge when you tilt
-    emitWater(FALL_LOCAL, Math.random() < 0.6 ? 2 : 1, R, R * 0.4);
+    emitWater(FALL_LOCAL, 4, R, R * 0.4);
     const tiltAmt = Math.max(0, Math.abs(H.roll) - 0.18);
     if (tiltAmt > 0) {
       const side = Math.sign(H.roll), n = Math.min(14, Math.ceil(tiltAmt * 50));
