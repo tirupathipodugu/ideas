@@ -80,7 +80,7 @@ function drawBubbles(dt) {
   octx.clearRect(0, 0, S.W, S.H);
   for (const b of bubbles) {
     b.t += dt; const a = Math.min(1, b.t * 6, (b.life - b.t) * 4); if (a <= 0) continue;
-    const x = st.pos.x + st.u * 0.9, y = st.pos.y - st.u * 2.6, fs = clamp(st.u * 0.36, 13, 22);
+    const d = st.draw || st.pos, x = clamp(d.x + st.u * 0.9, 90, S.W - 90), y = Math.max(60, d.y - st.u * 2.6), fs = clamp(st.u * 0.36, 13, 22);
     octx.save(); octx.globalAlpha = a; octx.font = `700 ${fs}px system-ui, sans-serif`;
     const w = octx.measureText(b.text).width + fs * 1.2, h = fs * 1.9;
     octx.fillStyle = 'rgba(255,255,255,.95)'; octx.beginPath(); octx.roundRect(x - w / 2, y - h, w, h, h / 2); octx.fill();
@@ -124,6 +124,8 @@ function setMode(m) {
 
 function armAnglesFrom(arm, shoulderAng) {
   if (!arm) return null;
+  const inside = (p) => p.x > 4 && p.x < S.W - 4 && p.y > 4 && p.y < S.H - 4; // pose guesses joints off-frame; ignore those
+  if (!inside(arm.el) || !inside(arm.wr)) return null;
   const a1 = Math.atan2(arm.el.x - arm.sh.x, arm.el.y - arm.sh.y), a2 = Math.atan2(arm.wr.x - arm.el.x, arm.wr.y - arm.el.y);
   return { up: a1 + shoulderAng, fa: a2 - a1 };
 }
@@ -192,7 +194,10 @@ function update(dt, fresh) {
   headG.rotation.x = lerp(headG.rotation.x, st.mode === 'sleep' ? 0.35 : 0, Math.min(1, dt * 4));
   bodyG.position.y = bodyBob; bodyG.rotation.z = lean;
   // sitting on the shoulder: hips at the anchor, legs dangle toward the camera
-  mini.position.set(st.pos.x, S.H - st.pos.y, 300); mini.rotation.set(0, 0, -st.ang + (st.spin || 0));
+  // close-ups: keep the whole little body in the frame
+  const px = clamp(st.pos.x, u * 1.3, S.W - u * 1.3), py = clamp(st.pos.y, u * 2.9, S.H - u * 0.4);
+  st.draw = { x: px, y: py };
+  mini.position.set(px, S.H - py, 300); mini.rotation.set(0, 0, -st.ang + (st.spin || 0));
   mini.scale.set(u / Math.sqrt(st.sq), u * st.sq, u);
   // zzz
   if (st.mode === 'sleep' && Math.random() < dt * 1.5) { const p = { x: st.pos.x + u * 0.6, y: st.pos.y - u * 2.1 }; burst(p.x, p.y, u * 0.15, 3, 220); }
