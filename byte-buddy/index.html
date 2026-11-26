@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Byte Buddy</title>
+<meta name="description" content="A tiny 3D buddy that lives on your shoulder, jumps to your hand and catches sparkles.">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="gl"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="vignette"></div>
+  <div id="bars" class="off"><i></i><i></i></div>
+</div>
+
+<div id="toast" aria-live="polite"></div>
+<div id="rec-dot" class="off">● REC</div>
+
+<section id="intro">
+  <div class="card">
+    <h1>Byte</h1>
+    <p class="sub">A tiny buddy that lives on your shoulder.</p>
+    <ul>
+      <li><b>Open one hand</b> and a sparkle appears. Byte jumps to catch it and rides your palm.</li>
+      <li><b>Open both hands</b> and Byte splits into 100 coloured clones that rush to you.</li>
+      <li><b>Close your hand</b> and Byte jumps back to your shoulder.</li>
+      <li><b>Hold your arm out flat</b>: Byte walks along it. Point it down and Byte slides.</li>
+      <li><b>Say</b> "come here", "go back", "climb", "peek", "hang", "slide", "dance", "wave", "hide", "multiply".</li>
+    </ul>
+    <button id="start" class="big">Start camera</button>
+    <p id="status" class="fine">Uses your camera and microphone. Nothing leaves your device.</p>
+  </div>
+</section>
+
+<nav id="bar" class="hidden" aria-label="Controls">
+  <div class="row" id="acts">
+    <button data-cmd="shoulder"><span>🫲</span>Shoulder</button>
+    <button data-cmd="hand"><span>✋</span>Hand</button>
+    <button data-cmd="head"><span>🧢</span>Head</button>
+    <button data-cmd="peek"><span>👀</span>Peek</button>
+    <button data-cmd="hang"><span>🪝</span>Hang</button>
+    <button data-cmd="walk"><span>🚶</span>Walk arm</button>
+    <button data-cmd="slide"><span>🛝</span>Slide</button>
+    <button data-cmd="sparkle"><span>✨</span>Sparkle</button>
+    <button data-cmd="multiply"><span>💯</span>100 Bytes</button>
+    <button data-cmd="dance"><span>🎉</span>Dance</button>
+    <button data-cmd="wave"><span>👋</span>Wave</button>
+    <button data-cmd="hide"><span>🙈</span>Hide</button>
+  </div>
+  <div class="row">
+    <button id="sound" aria-pressed="true"><span>🔊</span>Sound on</button>
+    <button id="mic" aria-pressed="false"><span>🎙️</span>Voice off</button>
+    <button id="cinema" aria-pressed="false"><span>🎬</span>Cinema off</button>
+    <button id="record" aria-pressed="false"><span>⏺</span>Record</button>
+  </div>
+</nav>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
