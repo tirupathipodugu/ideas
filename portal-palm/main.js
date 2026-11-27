@@ -437,7 +437,7 @@ function brain(dt) {
   if (emit) {
     const p = emit;
     if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
-    else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) { // endless while the hand stays open
+    else if (p.spawned >= 1 && p.t > (p.first ? 4.6 : 0.9)) { // endless while the hand stays open
       if (!p.flood) { p.flood = true; sfx.open(); }
       p.acc = (p.acc || 0) + dt * (p.t < 6 ? 96 : vac ? 30 : 42);
       if (alive() >= MAX) p.acc = 0;
