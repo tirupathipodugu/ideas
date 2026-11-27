@@ -447,7 +447,7 @@ function brain(dt) {
   for (const p of portals) p.vacuum = p === vac && p.state !== 'sucking';
   if (vac && FX.vac !== vac && vac.state !== 'sucking') { sfx.suck(); toast('They don’t want to go…', 2.2); }
   FX.vac = vac;
-  if (emit) {
+  if (emit && !emit.stopped) {
     const p = emit;
     if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
     else if (p.spawned >= 1 && p.t > (p.first ? 4.6 : 0.9)) { // endless while the hand stays open
@@ -470,6 +470,9 @@ const app = {
     for (let i = creatures.length - 1; i >= 0; i--) if (creatures[i].dead) creatures.splice(i, 1);
     const o = portals.reduce((m, p) => Math.max(m, p.open), 0), sucking = portals.some((p) => p.state === 'sucking');
     const gust = clamp(FX.winds.reduce((m, w) => Math.max(m, Math.hypot(w.vx, w.vy)), 0) / (U() * 10), 0, 1);
+    // the Flood button doubles as Stop while they are pouring out
+    const fl = portals.some((p) => (p.state === 'open' || p.state === 'opening') && !p.stopped && p.spawned >= 1);
+    if (fl !== G.floodUI) { G.floodUI = fl; const btn = document.querySelector('[data-cmd="flood"]'); if (btn) btn.innerHTML = fl ? '<span>⏹</span>Stop' : '<span>💯</span>Flood'; }
     drone?.set(o * 0.05, sucking ? 90 : 48); wind?.set(sucking ? 0.18 : o * 0.03 + gust * 0.05 * Math.min(1, alive() / 20), sucking ? 1600 : 500 + gust * 400);
   },
   command(c) {
@@ -477,7 +480,11 @@ const app = {
     const live = () => portals.find((q) => q.state === 'open' || q.state === 'opening');
     if (c === 'open') { if (!live()) openPortal(idx); else toast('It is already open'); }
     if (c === 'close') { (live() || openPortal(idx)).suck(); toast('Shhhlurp'); }
-    if (c === 'flood') { const p = live() || openPortal(idx); p.t = Math.max(p.t, 2.3); p.spawned = Math.max(p.spawned, 1); }
+    if (c === 'flood') {
+      const on = portals.filter((q) => (q.state === 'open' || q.state === 'opening') && !q.stopped && q.spawned >= 1);
+      if (on.length) { for (const q of on) q.stopped = true; toast('Stopped. They stay.', 1.6); return; } // stop: no more come out, the ones out keep floating
+      const p = live() || openPortal(idx); p.stopped = false; p.t = Math.max(p.t, 2.3); p.spawned = Math.max(p.spawned, 1);
+    }
   },
 };
 onResize(() => {});
