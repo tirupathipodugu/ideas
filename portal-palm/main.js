@@ -259,7 +259,7 @@ function Float(portal) {
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
         hx: rand(0.06, 0.94), hy: rand(0.07, 0.8), A0: FX.A ? { ...FX.A, s: T.scale } : null,
-        px: rand(0.5, 1.2), orb: 0.45 + 2.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
+        px: rand(0.5, 1.2), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
       b.fl.fol = 0.45 + b.fl.px * 0.6; // big = near = follows you more, small ones lag like they are far away
       b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
@@ -284,7 +284,7 @@ function Float(portal) {
       f.pt = lerp(f.pt || 0, FX.tip ? 1 : 0, Math.min(1, dt * (FX.tip ? 1.2 + f.px : 0.8)));
       if (f.pt > 0.001 && (FX.tip || FX.lastTip)) {
         const c = FX.tip || FX.lastTip, r = f.orb * u, a = f.ph + t * (2.4 / Math.sqrt(f.orb)) * f.spinDir;
-        const gx = c.x + Math.cos(a) * r, gy = c.y + Math.sin(a) * r * 0.55 - Math.cos(a) * r * 0.12;
+        const gx = c.x + Math.cos(a) * r, gy = c.y + Math.sin(a) * r * 0.42 - Math.cos(a) * r * 0.14;
         tx = lerp(tx, gx, f.pt); ty = lerp(ty, gy, f.pt);
       }
       const ramp = smooth(0.25, 1.8, this.t), k = f.k * ramp * (1 + f.pt * 2.2);
@@ -352,7 +352,7 @@ function brain(dt) {
     G.open[i] = h?.open ? G.open[i] + dt : 0;
     if (!has && G.open[i] > 0.3 && !portals.some((p) => p.hand === i && !p.dead)) openPortal(i);
     if (has) {
-      G.shut[i] = h && h.closed ? G.shut[i] + dt : 0;
+      G.shut[i] = h && !h.open ? G.shut[i] + dt : 0; // fist or pointing: the portal shuts
       G.lost[i] = !h ? G.lost[i] + dt : 0;
       if (G.shut[i] > 0.22 || G.lost[i] > 0.6) has.close();
     }
