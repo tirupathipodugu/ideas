@@ -128,6 +128,8 @@ const sfx = {
   close: () => { tone(140, 40, 0.35, 'sine', 0.3); noise(0.25, 900, 120, 0.25); [1568, 1319, 1047].forEach((f, i) => tone(f, f, 0.5, 'triangle', 0.03, 0.1 + i * 0.07)); },
   pop: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 30) return; last = n; const f = rand(600, 1300); tone(f, f * 1.9, 0.07, 'sine', 0.045); }; })(),
   peek: () => tone(900, 1400, 0.12, 'sine', 0.06),
+  swarm: () => { noise(0.8, 400, 2600, 0.08, { attack: 0.3 }); [659, 784, 988].forEach((f, i) => tone(f, f, 0.4, 'triangle', 0.03, i * 0.06)); },
+  zip: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 70) return; last = n; const f = rand(700, 1000); tone(f, f * 0.5, 0.18, 'sine', 0.03); }; })(),
   whee: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 140) return; last = n; const f = rand(500, 800); tone(f, f * 1.7, 0.16, 'sine', 0.035); }; })(),
 };
 
@@ -151,6 +153,29 @@ function Emerge(portal, hero) { // rise out of the depth: starts tiny at the far
       return false;
     },
   };
+}
+function Bridge(from, to) { // leap out of one portal, arc high over the gap, dive into the other
+  return {
+    t: 0,
+    start(b) { b.play('jump_air', { fade: 0.15, speed: 0.8 }); this.T = rand(0.95, 1.35); this.h = rand(0.45, 0.75); this.sw = rand(-0.18, 0.18); this.dir = Math.sign(to.center.x - from.center.x) || 1; b.yawT = this.dir * 0.8; },
+    update(b, dt) {
+      this.t += dt; const u = clamp(this.t / this.T, 0, 1), e = u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+      const p0 = from.center, p2 = to.center, d = dist(p0, p2);
+      const mx = (p0.x + p2.x) / 2 + this.sw * d, my = Math.min(p0.y, p2.y) - (d * this.h + U() * 1.2);
+      const k = 1 - e;
+      b.pos.x = k * k * p0.x + 2 * k * e * mx + e * e * p2.x; b.pos.y = k * k * p0.y + 2 * k * e * my + e * e * p2.y;
+      b.spin = -this.dir * Math.PI * 2 * smooth(0.25, 0.75, u); b.ang = 0;
+      b.popT = u < 0.12 ? 0.3 + u / 0.12 * 0.7 : u > 0.85 ? Math.max(0.02, 1 - (u - 0.85) / 0.15) : 1;
+      if (Math.random() < 0.7) glitter.emit(b.pos.x, b.pos.y, 0, 0, 0.55, b.bh * 0.1, ...hsl(b.hue, 0.9, 0.72), 0.9);
+      if (u >= 1) { to.v += 0.25; sfx.zip(); b.dispose(); return true; }
+      return false;
+    },
+  };
+}
+function bridgeSpawn(from, to) {
+  const i = total++, hue = (i * 137.5) % 360;
+  const c = new Buddy({ hue, sizeMul: rand(0.22, 0.4) }); c.portal = from; c.hue = hue; c.sucked = true; // in transit: not part of the flock
+  c.run([Emerge(from, false), Bridge(from, to)]); creatures.push(c);
 }
 function PopAway() { // shrink to nothing with a little sparkle burst
   return {
@@ -193,8 +218,14 @@ function sense(dt) {
   const Fc = L && L[0].v > 0.5 && L[7].v > 0.3 && L[8].v > 0.3 ? { ok: true, center: { x: L[0].x, y: L[0].y }, w: dist(L[7], L[8]) * 1.15 } : { ok: false };
   FX.A = B.ok ? { x: B.neck.x, y: B.neck.y } : FX.A;
   const src = [];
-  T.hands.forEach((h, i) => src.push(['h' + i, h.seat, Math.max(U() * 2.2, h.size.y * 1.8)]));
-  if (B.ok) for (const k of ['armR', 'armL']) if (B[k]) { src.push([k + 'w', B[k].wr, U() * 2]); src.push([k + 'e', B[k].el, U() * 1.6]); }
+  T.hands.forEach((h, i) => { if (!h.point) src.push(['h' + i, h.seat, Math.max(U() * 2.2, h.size.y * 1.8)]); });
+  const ph = T.hands.find((h) => h.point);
+  FX.ptT = ph ? (FX.ptT || 0) + dt : 0;
+  const was = !!FX.tip;
+  FX.tip = ph && FX.ptT > 0.25 ? { ...ph.tip8 } : null; if (FX.tip) FX.lastTip = FX.tip;
+  if (FX.tip && !was) { sfx.swarm(); toast('Come here…', 1.4); }
+  if (FX.tip && Math.random() < 0.7) glitter.emit(FX.tip.x + rand(-4, 4), FX.tip.y + rand(-4, 4), rand(-20, 20), rand(-30, 5), 0.5, rand(3, 6), 1, 0.95, 0.8, 1);
+  if (B.ok && !FX.tip) for (const k of ['armR', 'armL']) if (B[k]) { src.push([k + 'w', B[k].wr, U() * 2]); src.push([k + 'e', B[k].el, U() * 1.6]); }
   if (Fc.ok && Fc.center) src.push(['face', Fc.center, Math.max(U() * 2.4, Fc.w * 1.3)]);
   if (FX.A) src.push(['body', FX.A, U() * 3]);
   const seen = {}; FX.winds = [];
@@ -228,7 +259,7 @@ function Float(portal) {
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
         hx: rand(0.06, 0.94), hy: rand(0.07, 0.8), A0: FX.A ? { ...FX.A, s: T.scale } : null,
-        px: rand(0.5, 1.2), flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
+        px: rand(0.5, 1.2), orb: 0.45 + 2.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
       b.fl.fol = 0.45 + b.fl.px * 0.6; // big = near = follows you more, small ones lag like they are far away
       b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
@@ -249,7 +280,14 @@ function Float(portal) {
       tx += Math.sin(t * f.fx * 6.28 + f.ph) * 0.5 * u + Math.sin(t * f.fx * 2.3 + f.ph * 2) * 0.35 * u;
       ty += Math.cos(t * f.fy * 6.28 + f.ph) * 0.4 * u + Math.sin(t * 0.9 + f.ph) * 0.08 * u;
       tx = clamp(tx, S.W * 0.05, S.W * 0.95); ty = clamp(ty, S.H * 0.06, S.H * 0.84);
-      const ramp = smooth(0.25, 1.8, this.t), k = f.k * ramp;
+      // point a finger and they swarm it, circling the tip like a tiny galaxy (inner ones spin faster)
+      f.pt = lerp(f.pt || 0, FX.tip ? 1 : 0, Math.min(1, dt * (FX.tip ? 1.2 + f.px : 0.8)));
+      if (f.pt > 0.001 && (FX.tip || FX.lastTip)) {
+        const c = FX.tip || FX.lastTip, r = f.orb * u, a = f.ph + t * (2.4 / Math.sqrt(f.orb)) * f.spinDir;
+        const gx = c.x + Math.cos(a) * r, gy = c.y + Math.sin(a) * r * 0.55 - Math.cos(a) * r * 0.12;
+        tx = lerp(tx, gx, f.pt); ty = lerp(ty, gy, f.pt);
+      }
+      const ramp = smooth(0.25, 1.8, this.t), k = f.k * ramp * (1 + f.pt * 2.2);
       let axx = k * (tx - b.pos.x) - f.c * f.vx + f.sx * ramp, ayy = k * (ty - b.pos.y) - f.c * f.vy + f.sy * ramp;
       // the air you move: anything near a moving hand / arm / head gets swept along and pushed out
       let gust = 0;
@@ -307,8 +345,8 @@ function openPortal(hand) {
 }
 
 function brain(dt) {
-  // per hand: hold it open → portal in the palm. Fist → everything is sucked back in.
-  // Hand gone → the portal shuts, but whatever already came out stays floating.
+  // per hand: hold it open → portal in the palm. Fist → that portal shuts (everyone out stays floating).
+  // Hand gone → the portal shuts too.
   for (let i = 0; i < 2; i++) {
     const h = T.hands[i], has = portals.find((p) => p.hand === i && (p.state === 'open' || p.state === 'opening'));
     G.open[i] = h?.open ? G.open[i] + dt : 0;
@@ -316,30 +354,39 @@ function brain(dt) {
     if (has) {
       G.shut[i] = h && h.closed ? G.shut[i] + dt : 0;
       G.lost[i] = !h ? G.lost[i] + dt : 0;
-      if (G.shut[i] > 0.22) has.close(); // the portal shuts, everyone already out keeps floating
-      else if (G.lost[i] > 0.6) has.close();
+      if (G.shut[i] > 0.22 || G.lost[i] > 0.6) has.close();
     }
   }
-  // two fists at once: every byte on screen is sucked back into the nearest hand
+  // two fists at once: every byte on screen is sucked back in
   G.both = T.hands.length === 2 && T.hands.every((h) => h.closed) ? (G.both || 0) + dt : 0;
   if (G.both > 0.3 && alive()) { G.both = -99; const p = openPortal(0); p.suck(); toast('Shhhlurp'); }
-  // the pour: one peeks out first, then all of them climb out in a stream
-  const live = portals.filter((p) => p.state === 'open' || p.state === 'opening');
-  for (const p of live) {
-    if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
-    else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) { // endless while the hand stays open
-      if (!p.flood) { p.flood = true; sfx.open(); }
-      p.acc = (p.acc || 0) + dt * (p.t < 6 ? 32 : 14) / live.length;
-      while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
-    }
-  }
-  // over the cap: the oldest floaters pop into sparkles
-  let over = alive() - CAP;
-  for (const c of creatures) { if (over <= 0) break; if (c.fl && !c.dead && !c.sucked) { c.sucked = true; c.run([PopAway()]); over--; } }
   for (const p of portals) if (p.state === 'sucking') {
     p.suckT += dt;
     const mine = creatures.some((c) => !c.dead && c.sucked && c.portal === p);
     if ((!mine && p.suckT > 0.8) || p.suckT > 4) p.close();
+  }
+  // over the cap: the oldest floaters pop into sparkles, so it can run forever
+  let over = alive() - CAP;
+  for (const c of creatures) { if (over <= 0) break; if (c.fl && !c.dead && !c.sucked) { c.sucked = true; c.run([PopAway()]); over--; } }
+
+  const live = portals.filter((p) => p.state === 'open' || p.state === 'opening');
+  // both palms open: a bridge. The portal that opened first pours into the other one.
+  if (live.length === 2 && live.every((p) => p.t > 1.2)) {
+    const [from, to] = live[0].t >= live[1].t ? live : [live[1], live[0]];
+    if (!G.bridge) { G.bridge = true; sfx.open(); toast('Hand to hand ✋ ✋', 2); }
+    G.bacc = (G.bacc || 0) + dt * 16;
+    while (G.bacc >= 1) { G.bacc--; bridgeSpawn(from, to); }
+    return;
+  }
+  G.bridge = false;
+  // one palm: one peeks out first, then they keep climbing out for as long as the hand stays open
+  for (const p of live) {
+    if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
+    else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) {
+      if (!p.flood) { p.flood = true; sfx.open(); }
+      p.acc = (p.acc || 0) + dt * (p.t < 6 ? 32 : 14) / live.length;
+      while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
+    }
   }
 }
 

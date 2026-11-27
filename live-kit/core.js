@@ -235,13 +235,13 @@ function readHands(res, t) {
   const out = [];
   (res.landmarks || []).forEach((lm) => {
     const L = lm.map(toScreen), d = (a, b) => dist(L[a], L[b]);
-    let ext = 0; for (const [tip, pip] of [[8, 6], [12, 10], [16, 14], [20, 18]]) if (d(tip, 0) > d(pip, 0) * 1.12) ext++;
+    const fing = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([tip, pip]) => d(tip, 0) > d(pip, 0) * 1.12), ext = fing.filter(Boolean).length;
     let side = { x: L[17].x - L[5].x, y: L[17].y - L[5].y }; if (side.x < 0) side = { x: -side.x, y: -side.y };
     const hl = d(9, 0) || 1, hup = { x: (L[9].x - L[0].x) / hl, y: (L[9].y - L[0].y) / hl };
     const c = { x: (L[0].x + L[5].x + L[9].x + L[17].x) / 4, y: (L[0].y + L[5].y + L[9].y + L[17].y) / 4 };
     // how "face-on" the palm is: projected palm area vs its length² (flat-to-camera ≈ 0.5+)
     const area = Math.abs((L[5].x - L[0].x) * (L[17].y - L[0].y) - (L[17].x - L[0].x) * (L[5].y - L[0].y)) / 2;
-    out.push({ L, ext, hup, pw: d(5, 17), hl, raw: c, wrist: L[0], tip: L[12], ang: Math.atan2(side.y, side.x), flat: area / (hl * hl) });
+    out.push({ L, ext, fing, hup, pw: d(5, 17), hl, raw: c, wrist: L[0], tip: L[12], ang: Math.atan2(side.y, side.x), flat: area / (hl * hl) });
   });
   out.sort((a, b) => a.raw.x - b.raw.x);
   out.forEach((h, i) => {
@@ -250,7 +250,10 @@ function readHands(res, t) {
     // the palm's own axes on screen: across the knuckles (5→17) and wrist → middle knuckle (0→9)
     h.ax = F('hax' + i, { x: h.L[17].x - h.L[5].x, y: h.L[17].y - h.L[5].y }, t);
     h.ay = F('hay' + i, { x: h.L[9].x - h.L[0].x, y: h.L[9].y - h.L[0].y }, t);
-    h.open = h.ext >= 3; h.closed = h.ext <= 1;
+    // pointing: index out, the other three curled (not a fist, not an open hand)
+    h.point = !!h.fing && h.fing[0] && !h.fing[1] && !h.fing[2] && !h.fing[3];
+    h.open = h.ext >= 3; h.closed = h.ext <= 1 && !h.point;
+    h.tip8 = F('htip' + i, { x: h.L[8].x, y: h.L[8].y }, t);
     // a point just above the palm, along the fingers (where things hover)
     h.above = F('habv' + i, { x: h.seat.x + h.hup.x * h.hl * 0.55, y: h.seat.y + h.hup.y * h.hl * 0.55 }, t);
   });
@@ -404,11 +407,12 @@ export function boot(app) {
     window.__core = {
       T, S, app,
       tick(sec) { for (let t = 0; t < sec; t += 1 / 30) step(1 / 30, true); renderer.render(scene, cam); },
-      fakeHands(list) { // [[x, y, open, size?]]
+      fakeHands(list) { // [[x, y, open | 'point', size?]]
         T.hands.length = 0;
-        for (const [x, y, open, sz = 70] of list) {
+        for (let [x, y, open, sz = 70] of list) {
           const p = { x, y, ang: 0 }, L = Array.from({ length: 21 }, () => ({ x, y }));
-          T.hands.push({ L, seat: p, raw: p, open, closed: !open, ext: open ? 4 : 0, tip: { x, y: y - sz * 1.3 }, wrist: { x, y: y + sz * 0.8 }, hup: { x: 0, y: -1 }, pw: sz, hl: sz * 1.1, size: { x: sz, y: sz * 1.1 }, ax: { x: sz, y: 0 }, ay: { x: 0, y: -sz * 1.1 }, above: { x, y: y - sz * 0.6 }, ang: 0, flat: 0.5 });
+          const point = open === 'point'; if (point) open = false;
+          T.hands.push({ L, seat: p, raw: p, open, closed: !open && !point, point, tip8: { x, y: y - sz * 1.3 }, ext: open ? 4 : 0, tip: { x, y: y - sz * 1.3 }, wrist: { x, y: y + sz * 0.8 }, hup: { x: 0, y: -1 }, pw: sz, hl: sz * 1.1, size: { x: sz, y: sz * 1.1 }, ax: { x: sz, y: 0 }, ay: { x: 0, y: -sz * 1.1 }, above: { x, y: y - sz * 0.6 }, ang: 0, flat: 0.5 });
         }
       },
     };
