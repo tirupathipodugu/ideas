@@ -213,10 +213,18 @@ function Suck(portal, delay) { // spiral back down into the hole
 const U = () => Math.min(S.W, S.H) * 0.1; // the drift unit in px, stable whatever the camera does
 const FX = { A: null, winds: [], prev: {} };
 function sense(dt) {
-  const B = T.body, L = B.ok && B.raw;
-  // the head from pose (nose + ears): no extra face model, so phones keep their frame rate
+  const B = T.body, L = B.all && S.t - B.allT < 0.5 ? B.all : null;
+  // the head from pose (nose + ears): works on close-ups where the shoulders are gone, no extra model
   const Fc = L && L[0].v > 0.5 && L[7].v > 0.3 && L[8].v > 0.3 ? { ok: true, center: { x: L[0].x, y: L[0].y }, w: dist(L[7], L[8]) * 1.15 } : { ok: false };
-  FX.A = B.ok ? { x: B.neck.x, y: B.neck.y } : FX.A;
+  if (Fc.ok) {
+    // the flock lives in your space: it is pinned to your head and zooms with it.
+    // Move closer and they get bigger and spread out; step back and they shrink in around you.
+    const k = Math.min(1, dt * 5);
+    FX.A = FX.A ? { x: lerp(FX.A.x, Fc.center.x, k), y: lerp(FX.A.y, Fc.center.y, k) } : { ...Fc.center };
+    FX.hw = FX.hw ? lerp(FX.hw, Fc.w, Math.min(1, dt * 4)) : Fc.w;
+  }
+  if (!FX.ref || alive() === 0) FX.ref = FX.hw || null;
+  FX.Z = FX.ref && FX.hw ? clamp(FX.hw / FX.ref, 0.35, 3.5) : 1;
   const src = [];
   T.hands.forEach((h, i) => { if (!h.point) src.push(['h' + i, h.seat, Math.max(U() * 2.2, h.size.y * 1.8)]); });
   const ph = T.hands.find((h) => h.point);
@@ -258,32 +266,35 @@ function Float(portal) {
         // shoot up out of the palm (toward the fingers, always a bit up the screen), then the spring takes over
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
-        hx: rand(0.06, 0.94), hy: rand(0.07, 0.8), A0: FX.A ? { ...FX.A, s: T.scale } : null,
+        hx: rand(0.06, 0.94), hy: rand(0.07, 0.8),
         px: rand(0.5, 1.2), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
-      b.fl.fol = 0.45 + b.fl.px * 0.6; // big = near = follows you more, small ones lag like they are far away
       b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
       this.clip(b, pick(FLOAT_CLIPS));
     },
     clip(b, n) { b.play(n, { fade: 0.6, sync: true, speed: n === 'jump_air' ? rand(0.35, 0.55) : rand(0.6, 0.9) }); b.contactT = -0.1; },
     update(b, dt) {
       this.t += dt; const f = b.fl, u = U(), t = S.t;
-      // in the air they are sized to the screen, not to you, so a close-up never turns them into giants
-      b.sizeMul = lerp(b.sizeMul, f.px * u / Math.max(40, T.scale), Math.min(1, dt * 1.5));
+      const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
+      b.sizeMul = lerp(b.sizeMul, f.px * uz / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
-      if (FX.A) {
-        if (!f.A0) f.A0 = { ...FX.A, s: T.scale };
-        const sc = Math.sqrt(clamp(T.scale / f.A0.s, 0.6, 1.8)) - 1;
-        tx += (FX.A.x - f.A0.x) * f.fol + (tx - f.A0.x) * sc; ty += (FX.A.y - f.A0.y) * f.fol + (ty - f.A0.y) * sc;
+      if (FX.A) { // home is stored relative to your head, in head-size units, so it moves and zooms with you
+        if (!f.rel) { const z = FX.Z; f.rel = { x: (tx - FX.A.x) / z, y: (ty - FX.A.y) / z }; }
+        // each one chases your head at its own pace: big (near) ones keep up, small (far) ones trail, for depth
+        const kk = Math.min(1, dt * (1.5 + f.px * 4));
+        f.la = f.la ? { x: lerp(f.la.x, FX.A.x, kk), y: lerp(f.la.y, FX.A.y, kk) } : { ...FX.A };
+        tx = f.la.x + f.rel.x * Z; ty = f.la.y + f.rel.y * Z;
       }
-      tx += Math.sin(t * f.fx * 6.28 + f.ph) * 0.5 * u + Math.sin(t * f.fx * 2.3 + f.ph * 2) * 0.35 * u;
-      ty += Math.cos(t * f.fy * 6.28 + f.ph) * 0.4 * u + Math.sin(t * 0.9 + f.ph) * 0.08 * u;
-      tx = clamp(tx, S.W * 0.05, S.W * 0.95); ty = clamp(ty, S.H * 0.06, S.H * 0.84);
+      tx += Math.sin(t * f.fx * 6.28 + f.ph) * 0.5 * uz + Math.sin(t * f.fx * 2.3 + f.ph * 2) * 0.35 * uz;
+      ty += Math.cos(t * f.fy * 6.28 + f.ph) * 0.4 * uz + Math.sin(t * 0.9 + f.ph) * 0.08 * uz;
+      // zoomed in, the flock is allowed to spill past the edges, like it would in a real room
+      const spill = Math.max(0, Z - 1) * 0.45;
+      tx = clamp(tx, S.W * (0.05 - spill), S.W * (0.95 + spill)); ty = clamp(ty, S.H * (0.06 - spill), S.H * (0.84 + spill));
       // point a finger and they swarm it, circling the tip like a tiny galaxy (inner ones spin faster)
       f.pt = lerp(f.pt || 0, FX.tip ? 1 : 0, Math.min(1, dt * (FX.tip ? 1.2 + f.px : 0.8)));
       if (f.pt > 0.001 && (FX.tip || FX.lastTip)) {
-        const c = FX.tip || FX.lastTip, r = f.orb * u, a = f.ph + t * (2.4 / Math.sqrt(f.orb)) * f.spinDir;
+        const c = FX.tip || FX.lastTip, r = f.orb * uz, a = f.ph + t * (2.4 / Math.sqrt(f.orb)) * f.spinDir;
         const gx = c.x + Math.cos(a) * r, gy = c.y + Math.sin(a) * r * 0.42 - Math.cos(a) * r * 0.14;
         tx = lerp(tx, gx, f.pt); ty = lerp(ty, gy, f.pt);
       }
@@ -300,10 +311,11 @@ function Float(portal) {
         gust = Math.max(gust, sp * q);
       }
       // soft walls: nobody drifts off the edge of the screen for long
-      const m = b.bh * 0.5, wx = b.pos.x < m ? m - b.pos.x : b.pos.x > S.W - m ? S.W - m - b.pos.x : 0, wy = b.pos.y < m ? m - b.pos.y : b.pos.y > S.H * 0.88 ? S.H * 0.88 - b.pos.y : 0;
+      const sp = Math.max(0, Z - 1) * 0.5, m = b.bh * 0.5 - sp * S.W, mb = S.H * (0.88 + sp);
+      const wx = b.pos.x < m ? m - b.pos.x : b.pos.x > S.W - m ? S.W - m - b.pos.x : 0, wy = b.pos.y < m ? m - b.pos.y : b.pos.y > mb ? mb - b.pos.y : 0;
       axx += wx * 18 * ramp; ayy += wy * 18 * ramp;
       f.vx += axx * dt; f.vy += ayy * dt;
-      const v = Math.hypot(f.vx, f.vy), vmax = 9 * u; if (v > vmax) { f.vx *= vmax / v; f.vy *= vmax / v; }
+      const v = Math.hypot(f.vx, f.vy), vmax = 9 * uz; if (v > vmax) { f.vx *= vmax / v; f.vy *= vmax / v; }
       b.pos.x += f.vx * dt; b.pos.y += f.vy * dt;
       // body language: bank into the drift, face where it is going, a slow tumble, a somersault when flung
       b.ang = lerp(b.ang, clamp(f.vx / (5 * u), -0.55, 0.55), Math.min(1, dt * 3));

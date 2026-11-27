@@ -214,6 +214,7 @@ const add = (a, v, k) => ({ x: a.x + v.x * k, y: a.y + v.y * k });
 
 function readPose(lm, t) {
   const L = lm.map(toScreen), v = (i) => L[i].v > 0.5, B = T.body;
+  B.all = L; B.allT = t; // every landmark, even when the shoulders are out of frame (close-ups)
   if (!v(11) || !v(12)) { B.ok = false; return; }
   const rightIsLeft = L[11].x > L[12].x; // which landmark is on the right of the screen
   const R = rightIsLeft ? { sh: 11, el: 13, wr: 15 } : { sh: 12, el: 14, wr: 16 };
