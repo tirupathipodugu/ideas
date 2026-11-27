@@ -6,9 +6,9 @@
 import { THREE, GLOW_BLEND, Q, S, T, scene, boot, toast, clamp, lerp, rand, dist, smooth, hsl, glitter, burst, tone, noise, hum, loopNoise, onResize } from '../live-kit/core.js';
 import { loadBuddy, Buddy, Hold } from '../live-kit/buddy.js';
 
-// No limit on how many come out. Past CAP on screen at once, the oldest pop into sparkles so the
-// phone keeps its frame rate and it still looks endless. ?cap= raises or lowers it.
-const CAP = Math.max(20, Math.min(400, +Q.get('cap') || 220));
+// Nobody is ever removed. The more there are, the smaller they get and the harder they squeeze
+// against each other. MAX only pauses the portal so a phone cannot melt (?max= changes it).
+const MAX = Math.max(50, Math.min(1500, +Q.get('max') || 600));
 let made = 0;
 const PALETTES = [ // [deep, bright] portal colours, one per portal so two hands look different
   [new THREE.Color(0.25, 0.05, 0.55), new THREE.Color(0.35, 0.85, 1.0)],
@@ -129,6 +129,7 @@ const sfx = {
   close: () => { tone(140, 40, 0.35, 'sine', 0.3); noise(0.25, 900, 120, 0.25); [1568, 1319, 1047].forEach((f, i) => tone(f, f, 0.5, 'triangle', 0.03, 0.1 + i * 0.07)); },
   pop: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 30) return; last = n; const f = rand(600, 1300); tone(f, f * 1.9, 0.07, 'sine', 0.045); }; })(),
   peek: () => tone(900, 1400, 0.12, 'sine', 0.06),
+  squish: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 250) return; last = n; noise(0.12, 900, 300, 0.05); tone(rand(300, 420), rand(180, 240), 0.14, 'sine', 0.04); }; })(),
   eek: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 180) return; last = n; const f = rand(1100, 1600); tone(f, f * 1.25, 0.09, 'square', 0.012); tone(f * 1.2, f * 0.9, 0.08, 'sine', 0.03, 0.09); }; })(),
   swarm: () => { noise(0.8, 400, 2600, 0.08, { attack: 0.3 }); [659, 784, 988].forEach((f, i) => tone(f, f, 0.4, 'triangle', 0.03, i * 0.06)); },
   zip: (() => { let last = 0; return () => { const n = performance.now(); if (n - last < 70) return; last = n; const f = rand(700, 1000); tone(f, f * 0.5, 0.18, 'sine', 0.03); }; })(),
@@ -152,16 +153,6 @@ function Emerge(portal, hero) { // rise out of the depth: starts tiny at the far
       } else b.yawT = rand(-0.3, 0.3);
       if (Math.random() < 0.5) glitter.emit(c.x + rand(-1, 1) * portal.R * 0.5, c.y + rand(-1, 1) * portal.R * 0.3, 0, -rand(30, 90), 0.5, rand(2, 4), ...(portal.pal ? [1, 0.75, 0.5] : [0.7, 0.95, 1]), 0.9);
       if (u >= 1) { b.zb = 0; return true; }
-      return false;
-    },
-  };
-}
-function PopAway() { // shrink to nothing with a little sparkle burst
-  return {
-    t: 0,
-    update(b, dt) {
-      this.t += dt; b.popT = Math.max(0.01, 1 - this.t / 0.35); b.pos.y -= dt * U() * 0.6;
-      if (this.t >= 0.35) { burst(b.pos.x, b.pos.y, b.bh * 0.5, 14, b.hue); sfx.pop(); b.dispose(); return true; }
       return false;
     },
   };
@@ -227,12 +218,16 @@ function sense(dt) {
   // keep a little personal space so the flock never clumps into one blob
   const fl = creatures.filter((c) => c.fl && !c.dead && !c.sucked);
   for (const c of fl) { c.fl.sx = 0; c.fl.sy = 0; }
+  // crowding: past ~140 everyone shrinks to make room (smoothly, never a jump)
+  FX.crowd = lerp(FX.crowd || 1, clamp(Math.sqrt(140 / Math.max(1, fl.length)), 0.35, 1), Math.min(1, dt * 1.5));
+  if (fl.length > 180 && !FX.saidSqueeze) { FX.saidSqueeze = true; toast('Squeeze in!', 1.8); }
   for (let i = 0; i < fl.length; i++) for (let j = i + 1; j < fl.length; j++) {
     const a = fl[i], b = fl[j], dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, m = (a.bh + b.bh) * 0.42, d2 = dx * dx + dy * dy;
     if (d2 > m * m || d2 < 1e-4) continue;
     const d = Math.sqrt(d2), f = (m - d) / m * U() * 9;
     a.fl.sx += dx / d * f; a.fl.sy += dy / d * f; b.fl.sx -= dx / d * f; b.fl.sy -= dy / d * f;
   }
+  for (const c of fl) c.fl.press = lerp(c.fl.press || 0, clamp(Math.hypot(c.fl.sx, c.fl.sy) / (U() * 9), 0, 1), Math.min(1, dt * 8));
 }
 const FLOAT_CLIPS = ['jump_air', 'jump_air', 'hang', 'cheer', 'wave', 'hang'];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -255,7 +250,7 @@ function Float(portal) {
     update(b, dt) {
       this.t += dt; const f = b.fl, u = U(), t = S.t;
       const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
-      b.sizeMul = lerp(b.sizeMul, f.px * uz / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
+      b.sizeMul = lerp(b.sizeMul, f.px * uz * (FX.crowd || 1) / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
       if (FX.A) { // home is stored relative to your head, in head-size units, so it moves and zooms with you
@@ -326,6 +321,13 @@ function Float(portal) {
       if (!f.flip && v > 4.2 * u && gust > 2 * u) { f.flip = 1; f.dir = Math.sign(f.vx) || 1; sfx.whee(); }
       if (f.flip) f.flip = Math.max(0, f.flip - dt / 0.85);
       b.spin = Math.sin(t * 0.5 + f.ph) * 0.25 - (f.flip ? f.dir * Math.PI * 2 * smooth(0, 1, 1 - f.flip) : 0);
+      // squeezed: squashed flat by the neighbours, jiggling like a stress ball, cheeks puffed
+      const pr = f.press || 0;
+      if (pr > 0.04) {
+        b.sq = lerp(b.sq, 1 - 0.34 * pr + Math.sin(t * 17 + f.ph) * 0.08 * pr, Math.min(1, dt * 12)); b.sqV *= 0.5;
+        b.ang += Math.sin(t * 11 + f.ph) * 0.05 * pr;
+        if (pr > 0.5 && Math.random() < 0.01) sfx.squish();
+      }
       if (v > 2.2 * u && Math.random() < 0.25) glitter.emit(b.pos.x, b.pos.y, 0, 0, 0.5, b.bh * 0.08, ...hsl(b.hue, 0.9, 0.72), 0.8);
       if (f.strug) { // panic: legs going, leaning away, looking back over the shoulder now and then
         b.yawT = (f.ex > 0 ? 1 : -1) * (Math.sin(t * 3 + f.ph) > 0.7 ? -0.6 : 1.3);
@@ -387,9 +389,6 @@ function brain(dt) {
     p.let = p.hand >= 0 && (!h || !h.closed) ? (p.let || 0) + dt : 0; // open the fist and it lets go
     if ((!mine && !alive() && p.suckT > 0.8) || p.suckT > 40 || p.let > 0.35) p.close();
   }
-  // over the cap: the oldest floaters pop into sparkles, so it can run forever
-  let over = alive() - CAP;
-  for (const c of creatures) { if (over <= 0) break; if (c.fl && !c.dead && !c.sucked) { c.sucked = true; c.run([PopAway()]); over--; } }
 
   // both palms open: the first one keeps making new ones, the second becomes a vacuum for the old ones
   const live = portals.filter((p) => p.state === 'open' || p.state === 'opening').sort((a, b) => b.t - a.t);
@@ -403,6 +402,7 @@ function brain(dt) {
     else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) { // endless while the hand stays open
       if (!p.flood) { p.flood = true; sfx.open(); }
       p.acc = (p.acc || 0) + dt * (p.t < 6 ? 32 : vac ? 10 : 14);
+      if (alive() >= MAX) p.acc = 0;
       while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
     }
   }
