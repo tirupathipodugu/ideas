@@ -1,10 +1,14 @@
 // Portal Palm: open your hand and a glowing hole opens exactly in your palm, with real depth.
 // One creature peeks out, then a hundred climb out and float in the air all over the screen,
-// drifting with your body and swept around by your hands. Make a fist and they are sucked back in.
+// drifting with your body and swept around by your hands. Every time you open your hand, more come.
+// A fist shuts the portal (they stay); two fists suck every one of them back in.
 import { THREE, GLOW_BLEND, Q, S, T, scene, boot, toast, clamp, lerp, rand, dist, smooth, hsl, glitter, burst, tone, noise, hum, loopNoise, onResize } from '../live-kit/core.js';
 import { loadBuddy, Buddy, Hold } from '../live-kit/buddy.js';
 
-const N = Math.min(150, +Q.get('n') || 100);
+// No limit on how many come out. Past CAP on screen at once, the oldest pop into sparkles so the
+// phone keeps its frame rate and it still looks endless. ?cap= raises or lowers it.
+const CAP = Math.max(20, Math.min(400, +Q.get('cap') || 220));
+let made = 0;
 const PALETTES = [ // [deep, bright] portal colours, one per portal so two hands look different
   [new THREE.Color(0.25, 0.05, 0.55), new THREE.Color(0.35, 0.85, 1.0)],
   [new THREE.Color(0.45, 0.05, 0.2), new THREE.Color(1.0, 0.55, 0.25)],
@@ -144,6 +148,16 @@ function Emerge(portal, hero) { // rise out of the depth: starts tiny at the far
       } else b.yawT = rand(-0.3, 0.3);
       if (Math.random() < 0.5) glitter.emit(c.x + rand(-1, 1) * portal.R * 0.5, c.y + rand(-1, 1) * portal.R * 0.3, 0, -rand(30, 90), 0.5, rand(2, 4), ...(portal.pal ? [1, 0.75, 0.5] : [0.7, 0.95, 1]), 0.9);
       if (u >= 1) { b.zb = 0; return true; }
+      return false;
+    },
+  };
+}
+function PopAway() { // shrink to nothing with a little sparkle burst
+  return {
+    t: 0,
+    update(b, dt) {
+      this.t += dt; b.popT = Math.max(0.01, 1 - this.t / 0.35); b.pos.y -= dt * U() * 0.6;
+      if (this.t >= 0.35) { burst(b.pos.x, b.pos.y, b.bh * 0.5, 14, b.hue); sfx.pop(); b.dispose(); return true; }
       return false;
     },
   };
@@ -302,20 +316,26 @@ function brain(dt) {
     if (has) {
       G.shut[i] = h && h.closed ? G.shut[i] + dt : 0;
       G.lost[i] = !h ? G.lost[i] + dt : 0;
-      if (G.shut[i] > 0.22) { if (alive()) { has.suck(); toast('Shhhlurp'); } else has.close(); }
+      if (G.shut[i] > 0.22) has.close(); // the portal shuts, everyone already out keeps floating
       else if (G.lost[i] > 0.6) has.close();
     }
   }
+  // two fists at once: every byte on screen is sucked back into the nearest hand
+  G.both = T.hands.length === 2 && T.hands.every((h) => h.closed) ? (G.both || 0) + dt : 0;
+  if (G.both > 0.3 && alive()) { G.both = -99; const p = openPortal(0); p.suck(); toast('Shhhlurp'); }
   // the pour: one peeks out first, then all of them climb out in a stream
   const live = portals.filter((p) => p.state === 'open' || p.state === 'opening');
   for (const p of live) {
-    if (p.spawned === 0 && p.t > 0.7) { spawn(p, alive() === 0); p.spawned++; }
-    else if (p.spawned >= 1 && p.t > 2.2 && alive() < N) {
-      if (!p.flood) { p.flood = true; sfx.open(); toast('×' + N); }
-      p.acc = (p.acc || 0) + dt * 32 / live.length;
-      while (p.acc >= 1 && alive() < N) { p.acc--; spawn(p); p.spawned++; }
+    if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
+    else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) { // endless while the hand stays open
+      if (!p.flood) { p.flood = true; sfx.open(); }
+      p.acc = (p.acc || 0) + dt * (p.t < 6 ? 32 : 14) / live.length;
+      while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
     }
   }
+  // over the cap: the oldest floaters pop into sparkles
+  let over = alive() - CAP;
+  for (const c of creatures) { if (over <= 0) break; if (c.fl && !c.dead && !c.sucked) { c.sucked = true; c.run([PopAway()]); over--; } }
   for (const p of portals) if (p.state === 'sucking') {
     p.suckT += dt;
     const mine = creatures.some((c) => !c.dead && c.sucked && c.portal === p);
