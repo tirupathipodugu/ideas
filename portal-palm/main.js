@@ -115,7 +115,7 @@ class Portal {
   suck() {
     if (this.state === 'sucking' || this.state === 'closing') return;
     this.state = 'sucking'; this.suckT = 0; sfx.suck();
-    for (const c of creatures) if (!c.dead && !c.sucked) { c.sucked = true; c.portal = this; c.run([Suck(this, rand(0, 0.9) * Math.min(1, creatures.length / 40))]); }
+    // no instant grab: it becomes a vacuum, and they fight it until it wins (see Float)
   }
   close() { if (this.state === 'closing') return; this.state = 'closing'; this.t = Math.min(this.t, 1); sfx.close(); burst(this.center.x, this.center.y, this.size * 0.6, 90, this.pal ? 25 : 195); }
   dispose() { scene.remove(this.g, this.light); this.hole.material.dispose(); this.rim.material.dispose(); this.dead = true; }
@@ -173,11 +173,11 @@ function Suck(portal, delay) { // spiral back down into the hole
     update(b, dt) {
       this.t += dt;
       if (this.t < 0) { b.pos.x += rand(-1, 1) * b.bh * 0.03; return false; } // shiver before being pulled
-      if (!this.s) { this.s = { x: b.pos.x - portal.center.x, y: b.pos.y - portal.center.y }; this.T = clamp(0.45 + Math.hypot(this.s.x, this.s.y) / (S.H * 1.2), 0.45, 1.2); }
+      if (!this.s) { this.s = { x: b.pos.x - portal.center.x, y: b.pos.y - portal.center.y }; this.T = clamp(1.0 + Math.hypot(this.s.x, this.s.y) / (S.H * 0.8), 1.0, 2.2); }
       const u = clamp(this.t / this.T, 0, 1), e = u * u, th = e * Math.PI * 2.2 * (this.s.x > 0 ? 1 : -1), k = 1 - e;
       const x = this.s.x * k, y = this.s.y * k, c = Math.cos(th), s = Math.sin(th);
       b.pos.x = portal.center.x + x * c - y * s; b.pos.y = portal.center.y + x * s + y * c;
-      b.pop = b.popT = Math.max(0.02, 1 - smooth(0.45, 1, u)); b.spin += dt * 14 * u; b.sq = 1 + 0.4 * u;
+      b.pop = b.popT = Math.max(0.02, 1 - smooth(0.45, 1, u)); b.spin += dt * 8 * u; b.sq = 1 + 0.4 * u;
       if (Math.random() < 0.6) glitter.emit(b.pos.x, b.pos.y - b.bh * 0.3, 0, 0, 0.3, b.bh * 0.12, ...hsl(b.hue ?? 50, 0.9, 0.7), 0.9);
       if (u >= 1) { sfx.pop(); b.dispose(); return true; }
       return false;
@@ -246,7 +246,7 @@ function Float(portal) {
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
         hx: rand(0.06, 0.94), hy: rand(0.07, 0.8),
-        px: rand(0.5, 1.2), stam: rand(1.5, 6), grip: rand(1.5, 4), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
+        px: rand(0.5, 1.2), stam: rand(3, 9), grip: rand(0.8, 2.2), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
       b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
       this.clip(b, pick(FLOAT_CLIPS));
@@ -296,7 +296,7 @@ function Float(portal) {
         f.vt = (f.vt || 0) + dt;
         const dx = b.pos.x - vac.center.x, dy = b.pos.y - vac.center.y, d = Math.hypot(dx, dy) || 1, ex = dx / d, ey = dy / d;
         const near = 1 / (1 + d / (3.5 * u));
-        const pull = u * (2.5 + f.vt * f.grip) * (0.35 + 2.8 * near);
+        const pull = u * (1.6 + f.vt * f.grip) * (0.3 + 2.2 * near);
         const tire = Math.max(0, 1 - f.vt / f.stam);
         const flee = u * 8 * tire * (0.5 + 0.5 * Math.sin(t * 7 + f.ph)) * (0.35 + near);
         const side = f.ph % 2 > 1 ? 1 : -1; // each one has its own escape route, sideways round the pull
@@ -383,7 +383,9 @@ function brain(dt) {
   for (const p of portals) if (p.state === 'sucking') {
     p.suckT += dt;
     const mine = creatures.some((c) => !c.dead && c.sucked && c.portal === p);
-    if ((!mine && p.suckT > 0.8) || p.suckT > 5) p.close();
+    const h = p.hand >= 0 ? T.hands[p.hand] : null;
+    p.let = p.hand >= 0 && (!h || !h.closed) ? (p.let || 0) + dt : 0; // open the fist and it lets go
+    if ((!mine && !alive() && p.suckT > 0.8) || p.suckT > 40 || p.let > 0.35) p.close();
   }
   // over the cap: the oldest floaters pop into sparkles, so it can run forever
   let over = alive() - CAP;
@@ -391,9 +393,9 @@ function brain(dt) {
 
   // both palms open: the first one keeps making new ones, the second becomes a vacuum for the old ones
   const live = portals.filter((p) => p.state === 'open' || p.state === 'opening').sort((a, b) => b.t - a.t);
-  const emit = live[0], vac = live.length === 2 && live[1].t > 1.2 ? live[1] : null;
-  for (const p of portals) p.vacuum = p === vac;
-  if (vac && FX.vac !== vac) { sfx.suck(); toast('They don’t want to go…', 2.2); }
+  const emit = live[0], vac = (live.length === 2 && live[1].t > 1.2 ? live[1] : null) || portals.find((p) => p.state === 'sucking') || null;
+  for (const p of portals) p.vacuum = p === vac && p.state !== 'sucking';
+  if (vac && FX.vac !== vac && vac.state !== 'sucking') { sfx.suck(); toast('They don’t want to go…', 2.2); }
   FX.vac = vac;
   if (emit) {
     const p = emit;
