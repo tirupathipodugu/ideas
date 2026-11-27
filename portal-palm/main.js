@@ -233,8 +233,10 @@ function sense(dt) {
   // keep a little personal space so the flock never clumps into one blob
   const fl = creatures.filter((c) => c.fl && !c.dead && !c.sucked);
   for (const c of fl) { c.fl.sx = 0; c.fl.sy = 0; }
-  // crowding: past ~140 everyone shrinks to make room (smoothly, never a jump)
-  FX.crowd = lerp(FX.crowd || 1, clamp(Math.sqrt(140 / Math.max(1, fl.length)), 0.35, 1), Math.min(1, dt * 1.5));
+  // size follows the head count: one alone is big and cute (4x), and everyone shrinks smoothly as more
+  // arrive (about 1x at 30, 0.6x at 100, 0.4x at 300) so there is always room
+  FX.n = fl.length;
+  FX.crowd = lerp(FX.crowd || 4, clamp(4 * Math.pow(Math.max(1, fl.length), -0.4), 0.3, 4), Math.min(1, dt * 1.5));
   if (fl.length > 180 && !FX.saidSqueeze) { FX.saidSqueeze = true; toast('Squeeze in!', 1.8); }
   for (let i = 0; i < fl.length; i++) for (let j = i + 1; j < fl.length; j++) {
     const a = fl[i], b = fl[j], dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, m = (a.bh + b.bh) * 0.42, d2 = dx * dx + dy * dy;
@@ -285,7 +287,8 @@ function Float(portal) {
         }
       }
       const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
-      b.sizeMul = lerp(b.sizeMul, f.px * uz * (FX.crowd || 1) / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
+      const pxe = lerp(1, f.px, clamp((FX.n - 1) / 12, 0, 1)); // when there are only a few, they are all the same cute size
+      b.sizeMul = lerp(b.sizeMul, pxe * uz * (FX.crowd || 1) / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
       if (FX.A) { // home is stored relative to your head, in head-size units, so it moves and zooms with you
