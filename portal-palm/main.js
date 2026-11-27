@@ -8,8 +8,9 @@ import { loadBuddy, Buddy, Hold } from '../live-kit/buddy.js';
 
 // Nobody is ever removed. The more there are, the smaller they get and the harder they squeeze
 // against each other. No upper limit: the portal keeps going for as long as your hand is open.
-const MIN_H = 65; // px: however crowded it gets, nobody is ever shorter than this (?minh= changes it)
-const MIN_PX = +Q.get('minh') || MIN_H;
+const MIN_H = 80, MAX_H = 200; // px height: one alone is 200, crowds shrink them down to 80, never less (?minh= / ?maxh= change it)
+const MIN_PX = +Q.get('minh') || MIN_H, MAX_PX = +Q.get('maxh') || MAX_H;
+const byteH = (k) => clamp(MAX_PX * (FX.crowd || 1) * k * (FX.Z || 1), MIN_PX, MAX_PX);
 let made = 0;
 const PALETTES = [ // [deep, bright] portal colours, one per portal so two hands look different
   [new THREE.Color(0.25, 0.05, 0.55), new THREE.Color(0.35, 0.85, 1.0)],
@@ -237,7 +238,7 @@ function sense(dt) {
   // size follows the head count: one alone is big and cute (4x), and everyone shrinks smoothly as more
   // arrive (about 1x at 30, 0.6x at 100, 0.4x at 300) so there is always room
   FX.n = fl.length;
-  FX.crowd = lerp(FX.crowd || 4, clamp(4 * Math.pow(Math.max(1, fl.length), -0.4), 0.3, 4), Math.min(1, dt * 1.5));
+  FX.crowd = lerp(FX.crowd || 1, Math.pow(Math.max(1, fl.length), -0.25), Math.min(1, dt * 1.5));
   if (fl.length > 180 && !FX.saidSqueeze) { FX.saidSqueeze = true; toast('Squeeze in!', 1.8); }
   // neighbours via a grid, so a thousand of them still costs about the same per byte as ten
   let big = 0; for (const c of fl) big = Math.max(big, c.bh);
@@ -300,7 +301,7 @@ function Float(portal) {
       }
       const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
       const pxe = lerp(1, f.px, clamp((FX.n - 1) / 12, 0, 1)); // when there are only a few, they are all the same cute size
-      const hgt = Math.max(pxe * uz * (FX.crowd || 1), MIN_PX * (1 + (pxe - 0.5) * 0.4) * Math.max(1, Z)); // never below the minimum; zooming in still grows them
+      const hgt = byteH(pxe); // never below the minimum; zooming in still grows them
       b.sizeMul = lerp(b.sizeMul, hgt / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
@@ -400,7 +401,7 @@ const alive = () => creatures.filter((c) => !c.dead && !c.sucked).length;
 
 function spawn(portal, hero = false) {
   const i = total++, hue = hero ? (portal.pal ? 30 : 190) : (i * 137.5 + rand(-12, 12)) % 360;
-  const c = new Buddy({ hue, sizeMul: hero ? 0.6 : Math.max(rand(0.7, 1.1) * U() * (FX.crowd || 1) * (FX.Z || 1), MIN_PX) / Math.max(40, T.scale) }); // born at the flock's current size c.portal = portal; c.hue = hue;
+  const c = new Buddy({ hue, sizeMul: byteH(hero ? 1 : rand(0.8, 1.05)) / Math.max(40, T.scale) }); // born at the flock's current size c.portal = portal; c.hue = hue;
   c.mixer.timeScale = rand(0.88, 1.15);
   const steps = [Emerge(portal, hero)];
   if (hero) steps.push(Hold(() => portal.rimPt(0, 0.2), 'wave', 0.9, { yaw: 0, onStart: () => tone(700, 1100, 0.15, 'sine', 0.06) }));
