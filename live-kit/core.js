@@ -247,6 +247,9 @@ function readHands(res, t) {
   out.forEach((h, i) => {
     h.seat = F('hand' + i, { ...h.raw, ang: h.ang }, t);
     h.size = F('hsz' + i, { x: h.pw, y: h.hl }, t);
+    // the palm's own axes on screen: across the knuckles (5→17) and wrist → middle knuckle (0→9)
+    h.ax = F('hax' + i, { x: h.L[17].x - h.L[5].x, y: h.L[17].y - h.L[5].y }, t);
+    h.ay = F('hay' + i, { x: h.L[9].x - h.L[0].x, y: h.L[9].y - h.L[0].y }, t);
     h.open = h.ext >= 3; h.closed = h.ext <= 1;
     // a point just above the palm, along the fingers (where things hover)
     h.above = F('habv' + i, { x: h.seat.x + h.hup.x * h.hl * 0.55, y: h.seat.y + h.hup.y * h.hl * 0.55 }, t);
@@ -405,7 +408,7 @@ export function boot(app) {
         T.hands.length = 0;
         for (const [x, y, open, sz = 70] of list) {
           const p = { x, y, ang: 0 }, L = Array.from({ length: 21 }, () => ({ x, y }));
-          T.hands.push({ L, seat: p, raw: p, open, closed: !open, ext: open ? 4 : 0, tip: { x, y: y - sz * 1.3 }, wrist: { x, y: y + sz * 0.8 }, hup: { x: 0, y: -1 }, pw: sz, hl: sz * 1.1, size: { x: sz, y: sz * 1.1 }, above: { x, y: y - sz * 0.6 }, ang: 0, flat: 0.5 });
+          T.hands.push({ L, seat: p, raw: p, open, closed: !open, ext: open ? 4 : 0, tip: { x, y: y - sz * 1.3 }, wrist: { x, y: y + sz * 0.8 }, hup: { x: 0, y: -1 }, pw: sz, hl: sz * 1.1, size: { x: sz, y: sz * 1.1 }, ax: { x: sz, y: 0 }, ay: { x: 0, y: -sz * 1.1 }, above: { x, y: y - sz * 0.6 }, ang: 0, flat: 0.5 });
         }
       },
     };
