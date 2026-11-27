@@ -7,10 +7,9 @@ import { THREE, GLOW_BLEND, Q, S, T, scene, boot, toast, clamp, lerp, rand, dist
 import { loadBuddy, Buddy, Hold } from '../live-kit/buddy.js';
 
 // Nobody is ever removed. The more there are, the smaller they get and the harder they squeeze
-// against each other. MAX only pauses the portal so a phone cannot melt (?max= changes it).
+// against each other. No upper limit: the portal keeps going for as long as your hand is open.
 const MIN_H = 65; // px: however crowded it gets, nobody is ever shorter than this (?minh= changes it)
 const MIN_PX = +Q.get('minh') || MIN_H;
-const MAX = Math.max(50, Math.min(1500, +Q.get('max') || 600));
 let made = 0;
 const PALETTES = [ // [deep, bright] portal colours, one per portal so two hands look different
   [new THREE.Color(0.25, 0.05, 0.55), new THREE.Color(0.35, 0.85, 1.0)],
@@ -240,11 +239,22 @@ function sense(dt) {
   FX.n = fl.length;
   FX.crowd = lerp(FX.crowd || 4, clamp(4 * Math.pow(Math.max(1, fl.length), -0.4), 0.3, 4), Math.min(1, dt * 1.5));
   if (fl.length > 180 && !FX.saidSqueeze) { FX.saidSqueeze = true; toast('Squeeze in!', 1.8); }
-  for (let i = 0; i < fl.length; i++) for (let j = i + 1; j < fl.length; j++) {
-    const a = fl[i], b = fl[j], dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, m = (a.bh + b.bh) * 0.42, d2 = dx * dx + dy * dy;
-    if (d2 > m * m || d2 < 1e-4) continue;
-    const d = Math.sqrt(d2), f = (m - d) / m * U() * 9;
-    a.fl.sx += dx / d * f; a.fl.sy += dy / d * f; b.fl.sx -= dx / d * f; b.fl.sy -= dy / d * f;
+  // neighbours via a grid, so a thousand of them still costs about the same per byte as ten
+  let big = 0; for (const c of fl) big = Math.max(big, c.bh);
+  const cell = Math.max(8, big * 0.84), grid = new Map(), key = (x, y) => x * 73856093 ^ y * 19349663;
+  for (const c of fl) { const gx = Math.floor(c.pos.x / cell), gy = Math.floor(c.pos.y / cell), k = key(gx, gy); c._g = [gx, gy]; (grid.get(k) || grid.set(k, []).get(k)).push(c); }
+  for (const a of fl) {
+    const [gx, gy] = a._g;
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const list = grid.get(key(gx + ox, gy + oy)); if (!list) continue;
+      for (const b of list) {
+        if (b === a) continue;
+        const dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, m = (a.bh + b.bh) * 0.42, d2 = dx * dx + dy * dy;
+        if (d2 > m * m || d2 < 1e-4) continue;
+        const d = Math.sqrt(d2), f = (m - d) / m * U() * 9;
+        a.fl.sx += dx / d * f; a.fl.sy += dy / d * f; // each pair is visited from both sides, so only push "a"
+      }
+    }
   }
   for (const c of fl) c.fl.press = lerp(c.fl.press || 0, clamp(Math.hypot(c.fl.sx, c.fl.sy) / (U() * 9), 0, 1), Math.min(1, dt * 8));
 }
@@ -443,7 +453,6 @@ function brain(dt) {
     else if (p.spawned >= 1 && p.t > (p.first ? 4.6 : 0.9)) { // endless while the hand stays open
       if (!p.flood) { p.flood = true; sfx.open(); }
       p.acc = (p.acc || 0) + dt * (p.t < 6 ? 96 : vac ? 30 : 42);
-      if (alive() >= MAX) p.acc = 0;
       while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
     }
   }
