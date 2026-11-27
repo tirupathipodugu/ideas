@@ -8,6 +8,8 @@ import { loadBuddy, Buddy, Hold } from '../live-kit/buddy.js';
 
 // Nobody is ever removed. The more there are, the smaller they get and the harder they squeeze
 // against each other. MAX only pauses the portal so a phone cannot melt (?max= changes it).
+const MIN_H = 65; // px: however crowded it gets, nobody is ever shorter than this (?minh= changes it)
+const MIN_PX = +Q.get('minh') || MIN_H;
 const MAX = Math.max(50, Math.min(1500, +Q.get('max') || 600));
 let made = 0;
 const PALETTES = [ // [deep, bright] portal colours, one per portal so two hands look different
@@ -288,7 +290,8 @@ function Float(portal) {
       }
       const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
       const pxe = lerp(1, f.px, clamp((FX.n - 1) / 12, 0, 1)); // when there are only a few, they are all the same cute size
-      b.sizeMul = lerp(b.sizeMul, pxe * uz * (FX.crowd || 1) / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
+      const hgt = Math.max(pxe * uz * (FX.crowd || 1), MIN_PX * (1 + (pxe - 0.5) * 0.4) * Math.max(1, Z)); // never below the minimum; zooming in still grows them
+      b.sizeMul = lerp(b.sizeMul, hgt / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
       if (FX.A) { // home is stored relative to your head, in head-size units, so it moves and zooms with you
@@ -387,7 +390,7 @@ const alive = () => creatures.filter((c) => !c.dead && !c.sucked).length;
 
 function spawn(portal, hero = false) {
   const i = total++, hue = hero ? (portal.pal ? 30 : 190) : (i * 137.5 + rand(-12, 12)) % 360;
-  const c = new Buddy({ hue, sizeMul: hero ? 0.6 : clamp(rand(0.7, 1.1) * U() * (FX.crowd || 1) * (FX.Z || 1) / Math.max(40, T.scale), 0.05, 0.6) }); // born at the flock's current size c.portal = portal; c.hue = hue;
+  const c = new Buddy({ hue, sizeMul: hero ? 0.6 : Math.max(rand(0.7, 1.1) * U() * (FX.crowd || 1) * (FX.Z || 1), MIN_PX) / Math.max(40, T.scale) }); // born at the flock's current size c.portal = portal; c.hue = hue;
   c.mixer.timeScale = rand(0.88, 1.15);
   const steps = [Emerge(portal, hero)];
   if (hero) steps.push(Hold(() => portal.rimPt(0, 0.2), 'wave', 0.9, { yaw: 0, onStart: () => tone(700, 1100, 0.15, 'sine', 0.06) }));
