@@ -214,14 +214,17 @@ function Float(portal) {
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
         hx: rand(0.06, 0.94), hy: rand(0.07, 0.8), A0: FX.A ? { ...FX.A, s: T.scale } : null,
-        fol: 0.55 + b.sizeMul * 1.1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
+        px: rand(0.5, 1.2), flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
-      b.popT = 1; b.zb = (b.sizeMul - 0.36) * 300;
+      b.fl.fol = 0.45 + b.fl.px * 0.6; // big = near = follows you more, small ones lag like they are far away
+      b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
       this.clip(b, pick(FLOAT_CLIPS));
     },
     clip(b, n) { b.play(n, { fade: 0.6, sync: true, speed: n === 'jump_air' ? rand(0.35, 0.55) : rand(0.6, 0.9) }); b.contactT = -0.1; },
     update(b, dt) {
       this.t += dt; const f = b.fl, u = U(), t = S.t;
+      // in the air they are sized to the screen, not to you, so a close-up never turns them into giants
+      b.sizeMul = lerp(b.sizeMul, f.px * u / Math.max(40, T.scale), Math.min(1, dt * 1.5));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
       let tx = f.hx * S.W, ty = f.hy * S.H;
       if (FX.A) {
@@ -244,6 +247,9 @@ function Float(portal) {
         if (w.solid && d < w.solid) { axx += dx / d * (w.solid - d) * 14 * ramp; ayy += dy / d * (w.solid - d) * 14 * ramp; }
         gust = Math.max(gust, sp * q);
       }
+      // soft walls: nobody drifts off the edge of the screen for long
+      const m = b.bh * 0.5, wx = b.pos.x < m ? m - b.pos.x : b.pos.x > S.W - m ? S.W - m - b.pos.x : 0, wy = b.pos.y < m ? m - b.pos.y : b.pos.y > S.H * 0.88 ? S.H * 0.88 - b.pos.y : 0;
+      axx += wx * 18 * ramp; ayy += wy * 18 * ramp;
       f.vx += axx * dt; f.vy += ayy * dt;
       const v = Math.hypot(f.vx, f.vy), vmax = 9 * u; if (v > vmax) { f.vx *= vmax / v; f.vy *= vmax / v; }
       b.pos.x += f.vx * dt; b.pos.y += f.vy * dt;
