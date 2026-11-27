@@ -387,7 +387,7 @@ const alive = () => creatures.filter((c) => !c.dead && !c.sucked).length;
 
 function spawn(portal, hero = false) {
   const i = total++, hue = hero ? (portal.pal ? 30 : 190) : (i * 137.5 + rand(-12, 12)) % 360;
-  const c = new Buddy({ hue, sizeMul: hero ? 0.6 : rand(0.22, 0.5) }); c.portal = portal; c.hue = hue;
+  const c = new Buddy({ hue, sizeMul: hero ? 0.6 : clamp(rand(0.7, 1.1) * U() * (FX.crowd || 1) * (FX.Z || 1) / Math.max(40, T.scale), 0.05, 0.6) }); // born at the flock's current size c.portal = portal; c.hue = hue;
   c.mixer.timeScale = rand(0.88, 1.15);
   const steps = [Emerge(portal, hero)];
   if (hero) steps.push(Hold(() => portal.rimPt(0, 0.2), 'wave', 0.9, { yaw: 0, onStart: () => tone(700, 1100, 0.15, 'sine', 0.06) }));
