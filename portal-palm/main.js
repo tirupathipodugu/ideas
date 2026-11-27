@@ -157,23 +157,38 @@ function Emerge(portal, hero) { // rise out of the depth: starts tiny at the far
     },
   };
 }
-function Suck(portal, delay) { // spiral back down into the hole
+function Suck(portal, delay) { // slow-motion spiral down into the hole, reaching back the whole way
   return {
-    t: -delay,
-    start(b) { b.play('jump_air', { fade: 0.15 }); b.yawT = 0; b.tilt = 0; b.zb = 0; },
+    t: -delay, p: 0,
+    start(b) { b.play('hang', { fade: 0.25, speed: 0.7 }); b.yawT = 0; b.tilt = 0; b.zb = 0; b.mixer.timeScale = 0.5; },
     update(b, dt) {
       this.t += dt;
       if (this.t < 0) { b.pos.x += rand(-1, 1) * b.bh * 0.03; return false; } // shiver before being pulled
-      if (!this.s) { this.s = { x: b.pos.x - portal.center.x, y: b.pos.y - portal.center.y }; this.T = clamp(1.0 + Math.hypot(this.s.x, this.s.y) / (S.H * 0.8), 1.0, 2.2); }
-      const u = clamp(this.t / this.T, 0, 1), e = u * u, th = e * Math.PI * 2.2 * (this.s.x > 0 ? 1 : -1), k = 1 - e;
+      if (!this.s) { this.s = { x: b.pos.x - portal.center.x, y: b.pos.y - portal.center.y }; this.T = clamp(2.0 + Math.hypot(this.s.x, this.s.y) / (S.H * 0.4), 2.0, 4.5); }
+      // friends hanging on behind slow it right down (a tug of war); it still wins in the end
+      const held = creatures.some((c) => c.fl && c.fl.holding === b && !c.dead);
+      this.p += dt / this.T * (held ? 0.3 : 1);
+      const u = clamp(this.p, 0, 1), e = u * u, th = e * Math.PI * 2.2 * (this.s.x > 0 ? 1 : -1), k = 1 - e;
+      b.suckU = u;
       const x = this.s.x * k, y = this.s.y * k, c = Math.cos(th), s = Math.sin(th);
       b.pos.x = portal.center.x + x * c - y * s; b.pos.y = portal.center.y + x * s + y * c;
-      b.pop = b.popT = Math.max(0.02, 1 - smooth(0.45, 1, u)); b.spin += dt * 8 * u; b.sq = 1 + 0.4 * u;
+      if (held) { const j = Math.sin(S.t * 9 + b.hue) * b.bh * 0.06; b.pos.x += x * j / (Math.hypot(x, y) + 1); b.pos.y += y * j / (Math.hypot(x, y) + 1); }
+      b.pop = b.popT = Math.max(0.02, 1 - smooth(0.55, 1, u)); b.spin += dt * 4 * u; b.sq = 1 + 0.4 * u;
       if (Math.random() < 0.6) glitter.emit(b.pos.x, b.pos.y - b.bh * 0.3, 0, 0, 0.3, b.bh * 0.12, ...hsl(b.hue ?? 50, 0.9, 0.7), 0.9);
       if (u >= 1) { sfx.pop(); b.dispose(); return true; }
       return false;
     },
   };
+}
+/** a byte just got caught: up to two struggling friends nearby grab on to it and try to pull it back */
+function grabFriends(b) {
+  let n = 0;
+  for (const c of creatures) {
+    if (n >= 2) break;
+    const f = c.fl;
+    if (c === b || !f || c.dead || c.sucked || f.holding || !f.strug || dist(c.pos, b.pos) > b.bh * 4 || Math.random() > 0.65) continue;
+    f.holding = b; f.holdT = 0; f.holdMax = rand(1.8, 4); c.play('hang', { fade: 0.15, speed: 0.9 }); n++;
+  }
 }
 
 // ---------- floating in the air ----------
@@ -241,7 +256,7 @@ function Float(portal) {
         vx: portal.ay.x / up * u * 4 + rand(-1.6, 1.6) * u, vy: Math.min(-2.5 * u, portal.ay.y / up * u * 5) - rand(0.5, 2) * u,
         k: rand(1.3, 3.2), c: rand(1.5, 2.3), ph: rand(0, 100), fx: rand(0.12, 0.3), fy: rand(0.1, 0.26),
         hx: rand(0.06, 0.94), hy: rand(0.07, 0.8),
-        px: rand(0.5, 1.2), stam: rand(3, 9), grip: rand(0.8, 2.2), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
+        px: rand(0.5, 1.2), stam: rand(6, 16), grip: rand(0.4, 1.1), orb: 0.55 + 3.6 * Math.sqrt(Math.random()), spinDir: 1, flip: 0, dir: 1, sx: 0, sy: 0, clipT: rand(3, 8),
       };
       b.popT = 1; b.zb = (b.fl.px - 0.85) * 250;
       this.clip(b, pick(FLOAT_CLIPS));
@@ -249,6 +264,26 @@ function Float(portal) {
     clip(b, n) { b.play(n, { fade: 0.6, sync: true, speed: n === 'jump_air' ? rand(0.35, 0.55) : rand(0.6, 0.9) }); b.contactT = -0.1; },
     update(b, dt) {
       this.t += dt; const f = b.fl, u = U(), t = S.t;
+      if (f.holding) {
+        const g = f.holding, vac = g.portal;
+        if (g.dead || !vac || vac.dead) { f.holding = null; f.strug = false; }
+        else {
+          f.holdT += dt;
+          const dx = g.pos.x - vac.center.x, dy = g.pos.y - vac.center.y, d = Math.hypot(dx, dy) || 1, tug = Math.sin(t * 9 + f.ph) * g.bh * 0.1;
+          const k = Math.min(1, dt * 12);
+          b.pos.x = lerp(b.pos.x, g.pos.x + dx / d * (g.bh * 0.8 + tug), k); b.pos.y = lerp(b.pos.y, g.pos.y + dy / d * (g.bh * 0.8 + tug), k);
+          f.vx = 0; f.vy = 0;
+          b.yawT = (dx > 0 ? -1 : 1) * 1.2; // facing the friend (and the portal)
+          b.tilt = lerp(b.tilt, -0.45 + Math.sin(t * 12 + f.ph) * 0.08, Math.min(1, dt * 8)); // leaning back, heels dug in
+          b.ang = lerp(b.ang, clamp(dx / d * 0.5, -0.5, 0.5), Math.min(1, dt * 6));
+          b.sq = 1 - 0.12 + Math.sin(t * 15 + f.ph) * 0.05;
+          if (Math.random() < 0.03) sfx.eek();
+          if (f.holdT > f.holdMax || (g.suckU || 0) > 0.6) { // loses the grip and goes in too, maybe dragging the next one
+            f.holding = null; b.sucked = true; b.portal = vac; b.run([Suck(vac, 0)]); sfx.zip(); grabFriends(b); return true;
+          }
+          return false;
+        }
+      }
       const Z = FX.Z, uz = u * Z; // everything about the flock scales with how close your face is
       b.sizeMul = lerp(b.sizeMul, f.px * uz * (FX.crowd || 1) / Math.max(40, T.scale), Math.min(1, dt * (this.t < 2 ? 1.5 : 6)));
       // where this one wants to be: its home, carried along by your body, plus a slow lazy wander
@@ -291,7 +326,7 @@ function Float(portal) {
         f.vt = (f.vt || 0) + dt;
         const dx = b.pos.x - vac.center.x, dy = b.pos.y - vac.center.y, d = Math.hypot(dx, dy) || 1, ex = dx / d, ey = dy / d;
         const near = 1 / (1 + d / (3.5 * u));
-        const pull = u * (1.6 + f.vt * f.grip) * (0.3 + 2.2 * near);
+        const pull = u * (0.8 + f.vt * f.grip) * (0.3 + 2.2 * near);
         const tire = Math.max(0, 1 - f.vt / f.stam);
         const flee = u * 8 * tire * (0.5 + 0.5 * Math.sin(t * 7 + f.ph)) * (0.35 + near);
         const side = f.ph % 2 > 1 ? 1 : -1; // each one has its own escape route, sideways round the pull
@@ -301,7 +336,7 @@ function Float(portal) {
         f.ex = ex; f.near = near;
         if (!f.strug) { f.strug = true; b.play('run', { fade: 0.2, speed: rand(1.6, 2.2) }); }
         if (d < Math.max(vac.size * 0.7, b.bh * 0.8)) { // caught
-          b.sucked = true; b.portal = vac; b.run([Suck(vac, 0)]); sfx.zip(); return true;
+          b.sucked = true; b.portal = vac; b.run([Suck(vac, 0)]); sfx.zip(); grabFriends(b); return true;
         }
       } else if (f.strug || f.vt) {
         f.vt = Math.max(0, (f.vt || 0) - dt * 2);
@@ -401,7 +436,7 @@ function brain(dt) {
     if (p.spawned === 0 && p.t > 0.7) { p.first = alive() === 0; spawn(p, p.first); p.spawned++; }
     else if (p.spawned >= 1 && p.t > (p.first ? 2.2 : 0.9)) { // endless while the hand stays open
       if (!p.flood) { p.flood = true; sfx.open(); }
-      p.acc = (p.acc || 0) + dt * (p.t < 6 ? 32 : vac ? 10 : 14);
+      p.acc = (p.acc || 0) + dt * (p.t < 6 ? 96 : vac ? 30 : 42);
       if (alive() >= MAX) p.acc = 0;
       while (p.acc >= 1) { p.acc--; spawn(p); p.spawned++; made++; if (made % 50 === 0) toast('×' + made); }
     }
